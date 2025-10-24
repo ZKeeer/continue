@@ -4,6 +4,9 @@ import { Telemetry } from "../../util/posthog";
 import { getUriFileExtension } from "../../util/uri";
 
 import { AutocompleteOutcome } from "./types";
+import { TelemetryTracker } from "./telemetryUserTracker";
+
+const telemetryUser = TelemetryTracker.getInstance();
 
 export class AutocompleteLoggingService {
   // Key is completionId
@@ -57,6 +60,9 @@ export class AutocompleteLoggingService {
   }
 
   public markDisplayed(completionId: string, outcome: AutocompleteOutcome) {
+    // record the autocomplete show event
+    telemetryUser.trackEvent("show", completionId, outcome.modelName, outcome.time);
+
     const logRejectionTimeout = setTimeout(() => {
       // Wait 10 seconds, then assume it wasn't accepted
       outcome.accepted = false;
@@ -121,6 +127,13 @@ export class AutocompleteLoggingService {
       numLines: restOfOutcome.numLines,
       profileType: restOfOutcome.profileType,
     };
+    // record the autocomplete accept event
+    if (outcome.accepted){
+        telemetryUser.trackEvent("accept", outcome.completionId, outcome.modelName, outcome.time);
+    } else {
+        telemetryUser.trackEvent("unaccept", outcome.completionId, outcome.modelName, outcome.time);
+    }
+
 
     outcome.enabledStaticContextualization
       ? void Telemetry.capture("autocomplete", {
