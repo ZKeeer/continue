@@ -210,6 +210,18 @@ export class CompletionProvider {
       ]);
       const afterContextCollection = Date.now();
 
+      console.log("[Autocomplete Debug] snippetPayload:", JSON.stringify(snippetPayload, null, 2));
+      console.log("[Autocomplete Debug] workspaceDirs:", workspaceDirs);
+      console.log("[Autocomplete Debug] helper:", {
+        filepath: helper.filepath,
+        pos: helper.pos,
+        lang: helper.lang,
+        modelName: helper.modelName,
+        prunedPrefix: helper.prunedPrefix,
+        prunedSuffix: helper.prunedSuffix,
+        options: helper.options,
+      });
+
       const { prompt, prefix, suffix, completionOptions } =
         renderPromptWithTokenLimit({
           snippetPayload,
@@ -217,6 +229,12 @@ export class CompletionProvider {
           helper,
           llm,
         });
+
+      console.log("[Autocomplete Debug] prompt:", prompt);
+      console.log("[Autocomplete Debug] prefix:", prefix);
+      console.log("[Autocomplete Debug] suffix:", suffix);
+      console.log("[Autocomplete Debug] completionOptions:", completionOptions);
+
       const afterPromptBuild = Date.now();
 
       // Completion
