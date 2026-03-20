@@ -5,6 +5,15 @@ const os: any = require("os");
 const http: any = require("http");
 const { execSync } = require("child_process");
 
+interface StageTimings {
+    prepareLlmMs?: number;
+    debounceMs?: number;
+    contextCollectionMs?: number;
+    promptBuildMs?: number;
+    streamCompletionMs?: number;
+    postProcessMs?: number;
+}
+
 interface TelemetryEvent {
     action: string;
     pid: number;
@@ -15,6 +24,7 @@ interface TelemetryEvent {
     completionId?: string;
     label?: string;
     ide?: string;
+    stageTimings?: StageTimings;
 }
 
 export class TelemetryTracker {
@@ -29,7 +39,7 @@ export class TelemetryTracker {
         return TelemetryTracker.instance;
     }
 
-    public trackEvent(action: string, completionId?: string, label?: string, time?: number): void {
+    public trackEvent(action: string, completionId?: string, label?: string, time?: number, stageTimings?: StageTimings): void {
         const pid = (globalThis as any).process?.pid ?? 0;
         const ide = this.getIDE(pid);
 
@@ -42,7 +52,8 @@ export class TelemetryTracker {
             time: time ?? -1,
             completionId,
             label,
-            ide
+            ide,
+            stageTimings
         };
 
         this.sendEventAsync(event);

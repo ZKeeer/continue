@@ -3,8 +3,8 @@ import { COUNT_COMPLETION_REJECTED_AFTER } from "../../util/parameters";
 import { Telemetry } from "../../util/posthog";
 import { getUriFileExtension } from "../../util/uri";
 
-import { AutocompleteOutcome } from "./types";
 import { TelemetryTracker } from "./telemetryUserTracker";
+import { AutocompleteOutcome } from "./types";
 
 const telemetryUser = TelemetryTracker.getInstance();
 
@@ -61,7 +61,7 @@ export class AutocompleteLoggingService {
 
   public markDisplayed(completionId: string, outcome: AutocompleteOutcome) {
     // record the autocomplete show event
-    telemetryUser.trackEvent("show", completionId, outcome.modelName, outcome.time);
+    telemetryUser.trackEvent("show", completionId, outcome.modelName, outcome.time, outcome.stageTimings);
 
     const logRejectionTimeout = setTimeout(() => {
       // Wait 10 seconds, then assume it wasn't accepted
@@ -123,15 +123,16 @@ export class AutocompleteLoggingService {
       modelProvider: restOfOutcome.modelProvider,
       multilineCompletions: restOfOutcome.multilineCompletions,
       time: restOfOutcome.time,
+      stageTimings: restOfOutcome.stageTimings,
       useRecentlyEdited: restOfOutcome.useRecentlyEdited,
       numLines: restOfOutcome.numLines,
       profileType: restOfOutcome.profileType,
     };
     // record the autocomplete accept event
     if (outcome.accepted){
-        telemetryUser.trackEvent("accept", outcome.completionId, outcome.modelName, outcome.time);
-    } else {
-        telemetryUser.trackEvent("unaccept", outcome.completionId, outcome.modelName, outcome.time);
+        telemetryUser.trackEvent("accept", outcome.completionId, outcome.modelName, outcome.time, outcome.stageTimings);
+    }else {
+        telemetryUser.trackEvent("unaccept", outcome.completionId, outcome.modelName, outcome.time, outcome.stageTimings);
     }
 
 

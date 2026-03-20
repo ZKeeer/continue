@@ -18,7 +18,7 @@ import { AutocompleteDebouncer } from "./util/AutocompleteDebouncer.js";
 import { AutocompleteLoggingService } from "./util/AutocompleteLoggingService.js";
 import AutocompleteLruCache from "./util/AutocompleteLruCache.js";
 import { HelperVars } from "./util/HelperVars.js";
-import { AutocompleteInput, AutocompleteOutcome } from "./util/types.js";
+import { AutocompleteInput, AutocompleteOutcome, AutocompleteStageTimings } from "./util/types.js";
 
 const autocompleteCachePromise = AutocompleteLruCache.get();
 
@@ -163,6 +163,7 @@ export class CompletionProvider {
       const startTime = Date.now();
 
       const llm = await this._prepareLlm();
+      const afterPrepareLlm = Date.now();
       if (!llm) {
         return undefined;
       }
@@ -181,6 +182,7 @@ export class CompletionProvider {
           return undefined;
         }
       }
+      const afterDebounce = Date.now();
 
       if (llm.promptTemplates?.autocomplete) {
         options.template = llm.promptTemplates.autocomplete as string;
@@ -206,6 +208,7 @@ export class CompletionProvider {
         }),
         this.ide.getWorkspaceDirs(),
       ]);
+      const afterContextCollection = Date.now();
 
       const { prompt, prefix, suffix, completionOptions } =
         renderPromptWithTokenLimit({
@@ -214,6 +217,7 @@ export class CompletionProvider {
           helper,
           llm,
         });
+      const afterPromptBuild = Date.now();
 
       // Completion
       let completion: string | undefined = "";
@@ -222,6 +226,7 @@ export class CompletionProvider {
         ? await cache.get(helper.prunedPrefix)
         : undefined;
       let cacheHit = false;
+      let afterStreamCompletion = afterPromptBuild;
       if (cachedCompletion) {
         cacheHit = true;
         completion = cachedCompletion;
@@ -244,6 +249,7 @@ export class CompletionProvider {
         for await (const update of completionStream) {
           completion += update;
         }
+        afterStreamCompletion = Date.now();
 
         // Don't postprocess if aborted
         if (token.aborted) {
@@ -261,13 +267,24 @@ export class CompletionProvider {
 
         completion = processedCompletion;
       }
+      const afterPostProcess = Date.now();
 
       if (!completion) {
         return undefined;
       }
 
+      const stageTimings: AutocompleteStageTimings = {
+        prepareLlmMs: afterPrepareLlm - startTime,
+        debounceMs: afterDebounce - afterPrepareLlm,
+        contextCollectionMs: afterContextCollection - afterDebounce,
+        promptBuildMs: afterPromptBuild - afterContextCollection,
+        streamCompletionMs: afterStreamCompletion - afterPromptBuild,
+        postProcessMs: afterPostProcess - afterStreamCompletion,
+      };
+
       const outcome: AutocompleteOutcome = {
         time: Date.now() - startTime,
+        stageTimings,
         completion,
         prefix,
         suffix,

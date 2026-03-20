@@ -25,9 +25,19 @@ export interface AutocompleteInput {
   injectDetails?: string;
 }
 
+export interface AutocompleteStageTimings {
+  prepareLlmMs: number;
+  debounceMs: number;
+  contextCollectionMs: number;
+  promptBuildMs: number;
+  streamCompletionMs: number;
+  postProcessMs: number;
+}
+
 export interface AutocompleteOutcome extends TabAutocompleteOptions {
   accepted?: boolean;
   time: number;
+  stageTimings?: AutocompleteStageTimings;
   prefix: string;
   suffix: string;
   prompt: string;
