@@ -1,0 +1,133 @@
+
+=== npm install (root) ===
+
+=== Build local packages ===
+🚀 Starting package builds...
+
+Starting config-types (install): npm install
+Starting terminal-security (install): npm install
+✅ config-types (install): npm install completed successfully
+Starting config-types (build): npm run build
+✅ terminal-security (install): npm install completed successfully
+Starting terminal-security (build): npm run build
+✅ config-types (build): npm run build completed successfully
+✅ terminal-security (build): npm run build completed successfully
+Starting fetch (install): npm install
+Starting config-yaml (install): npm install
+Starting llm-info (install): npm install
+✅ llm-info (install): npm install completed successfully
+Starting llm-info (build): npm run build
+✅ config-yaml (install): npm install completed successfully
+Starting config-yaml (build): npm run build
+✅ fetch (install): npm install completed successfully
+Starting fetch (build): npm run build
+✅ llm-info (build): npm run build completed successfully
+✅ fetch (build): npm run build completed successfully
+✅ config-yaml (build): npm run build completed successfully
+Starting openai-adapters (install): npm install
+Starting continue-sdk (install): npm install
+✅ continue-sdk (install): npm install completed successfully
+Starting continue-sdk (build): npm run build
+✅ continue-sdk (build): npm run build completed successfully
+✅ openai-adapters (install): npm install completed successfully
+Starting openai-adapters (build): npm run build
+✅ openai-adapters (build): npm run build completed successfully
+🎉 All packages built successfully!
+
+=== Core ===
+
+up to date, audited 3 packages in 5s
+
+found 0 vulnerabilities
+
+=== VSCode extension (win32-x64) ===
+
+> continue@1.3.19 prepackage
+> node scripts/prepackage.js --target win32-x64
+
+[info] Using target:  win32-x64
+[info] Packaging extension for target win32-x64 - started at 2026-03-26T09:19:20.024Z
+[timer] Starting npm installs at 2026-03-26T09:19:20.026Z
+[info] npm install in extensions/vscode completed
+[info] npm install in gui completed
+[info] Generated config.yaml schema
+[timer] npm installs completed in 31783ms
+[timer] Starting JetBrains copy at 2026-03-26T09:19:51.900Z
+[timer] JetBrains copy completed in 229ms
+[info] Copied gui build to JetBrains extension
+[timer] Starting VSCode copy at 2026-03-26T09:19:52.239Z
+Copied gui build to VSCode extension
+[timer] VSCode copy completed in 188ms
+[timer] Starting onnxruntime copy at 2026-03-26T09:19:52.429Z
+[timer] onnxruntime copy completed in 232ms
+[info] Copied onnxruntime-node
+[info] Copied tree-sitter.wasm
+[info] Copied llamaTokenizerWorkerPool.mjs
+[info] Copied llamaTokenizer.mjs
+[info] Copied tiktokenWorkerPool.mjs
+[info] Copied start_ollama.sh
+[info] Copying sqlite node binding from core
+[info] Copied workerpool
+[info] Copied @vscode/ripgrep
+[info] Copied @lancedb
+[info] Copied @lancedb, @vscode/ripgrep, workerpool
+All paths exist
+[timer] Prepackage completed in 33956ms - finished at 2026-03-26T09:19:53.980Z
+
+up to date, audited 1245 packages in 6s
+
+264 packages are looking for funding
+  run `npm fund` for details
+
+43 vulnerabilities (6 low, 11 moderate, 23 high, 3 critical)
+
+To address issues that do not require attention, run:
+  npm audit fix
+
+To address all issues possible (including breaking changes), run:
+  npm audit fix --force
+
+Some issues need review, and may require choosing
+a different dependency.
+
+Run `npm audit` for details.
+
+> continue@1.3.19 prepackage
+> node scripts/prepackage.js
+
+[info] Using target:  win32-x64
+[info] Packaging extension for target win32-x64 - started at 2026-03-26T09:20:08.768Z
+[timer] Starting npm installs at 2026-03-26T09:20:08.771Z
+[info] npm install in gui completed
+[info] npm install in extensions/vscode completed
+[info] Generated config.yaml schema
+[timer] npm installs completed in 33984ms
+[timer] Starting JetBrains copy at 2026-03-26T09:20:42.829Z
+[timer] JetBrains copy completed in 181ms
+[info] Copied gui build to JetBrains extension
+[timer] Starting VSCode copy at 2026-03-26T09:20:43.105Z
+Copied gui build to VSCode extension
+[timer] VSCode copy completed in 180ms
+[timer] Starting onnxruntime copy at 2026-03-26T09:20:43.287Z
+[timer] onnxruntime copy completed in 172ms
+[info] Copied onnxruntime-node
+[info] Copied tree-sitter.wasm
+[info] Copied llamaTokenizerWorkerPool.mjs
+[info] Copied llamaTokenizer.mjs
+[info] Copied tiktokenWorkerPool.mjs
+[info] Copied start_ollama.sh
+[info] Copying sqlite node binding from core
+[info] Copied workerpool
+[info] Copied @vscode/ripgrep
+[info] Copied @lancedb
+[info] Copied @lancedb, @vscode/ripgrep, workerpool
+All paths exist
+[timer] Prepackage completed in 36163ms - finished at 2026-03-26T09:20:44.931Z
+
+> continue@1.3.19 package
+> node scripts/package.js --target win32-x64
+
+vsce package completed - extension created at extensions/vscode/build/continue-1.3.19.vsix
+
+=== Done ===
+VSIX: E:\vmshare\continue-v1.3.19-vscode\extensions\vscode\build\continue-win32-x64-1.3.19.vsix
