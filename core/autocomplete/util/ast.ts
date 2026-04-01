@@ -5,10 +5,22 @@ import { getParserForFile } from "../../util/treeSitter";
 
 export type AstPath = Parser.SyntaxNode[];
 
+// [zkdev] P2: Module-level AST cache — reuse parse results when file content unchanged.
+// Key: filepath, Value: { content used for parsing, parsed tree }.
+// Evicts LRU when exceeding MAX_AST_CACHE_SIZE.
+const MAX_AST_CACHE_SIZE = 20;
+const astCache = new Map<string, { content: string; tree: Parser.Tree }>();
+
 export async function getAst(
   filepath: string,
   fileContents: string,
 ): Promise<Parser.Tree | undefined> {
+  // Check cache: same filepath + same content → reuse tree
+  const cached = astCache.get(filepath);
+  if (cached && cached.content === fileContents) {
+    return cached.tree;
+  }
+
   const parser = await getParserForFile(filepath);
 
   if (!parser) {
@@ -17,6 +29,16 @@ export async function getAst(
 
   try {
     const ast = parser.parse(fileContents);
+
+    // Evict oldest entry if at capacity (Map preserves insertion order)
+    if (astCache.size >= MAX_AST_CACHE_SIZE) {
+      const oldestKey = astCache.keys().next().value;
+      if (oldestKey !== undefined) {
+        astCache.delete(oldestKey);
+      }
+    }
+    astCache.set(filepath, { content: fileContents, tree: ast });
+
     return ast;
   } catch (e) {
     return undefined;

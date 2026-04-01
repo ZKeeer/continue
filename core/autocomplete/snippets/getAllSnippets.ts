@@ -14,6 +14,8 @@ import {
   AutocompleteStaticSnippet,
 } from "./types";
 
+import { createEditIntentSnippet } from "../prediction/EditIntentDetector.js";
+
 const IDE_SNIPPETS_ENABLED = false; // ideSnippets is not used, so it's temporarily disabled
 
 export interface SnippetPayload {
@@ -28,7 +30,34 @@ export interface SnippetPayload {
   staticSnippet: AutocompleteStaticSnippet[];
 }
 
+// [zkdev] Concurrency limiter for LSP/IO requests
+// racePromise only abandons waiting — it does NOT cancel the underlying work.
+// Without a concurrency limit, fast typing can pile up unbounded background requests.
+let _pendingSnippetRequests = 0;
+const MAX_PENDING_SNIPPET_REQUESTS = 3;
+const SLOT_SAFETY_TIMEOUT_MS = 30_000; // Failsafe: release slot after 30s even if promise never settles
+
 function racePromise<T>(promise: Promise<T[]>, timeout = 100): Promise<T[]> {
+  // If too many requests are already in-flight, return empty immediately
+  if (_pendingSnippetRequests >= MAX_PENDING_SNIPPET_REQUESTS) {
+    return Promise.resolve([]);
+  }
+
+  _pendingSnippetRequests++;
+  let released = false;
+  const release = () => {
+    if (!released) {
+      released = true;
+      _pendingSnippetRequests = Math.max(0, _pendingSnippetRequests - 1);
+    }
+  };
+
+  // Release slot when the underlying promise settles (best case)
+  promise.then(release, release);
+
+  // Failsafe: release slot after 30s even if promise never settles (e.g. LSP hung)
+  setTimeout(release, SLOT_SAFETY_TIMEOUT_MS);
+
   const timeoutPromise = new Promise<T[]>((resolve) => {
     setTimeout(() => resolve([]), timeout);
   });
@@ -71,13 +100,20 @@ function getSnippetsFromRecentlyEditedRanges(
     return [];
   }
 
-  return helper.input.recentlyEditedRanges.map((range) => {
-    return {
-      filepath: range.filepath,
-      content: range.lines.join("\n"),
-      type: AutocompleteSnippetType.Code,
-    };
-  });
+  return helper.input.recentlyEditedRanges
+    .filter(
+      (range) => findUriInDirs(range.filepath, helper.workspaceUris).foundInDir,
+    )
+    .map((range) => {
+      return {
+        filepath: range.filepath,
+        content: range.lines.join("\n"),
+        type: AutocompleteSnippetType.Code,
+        // [zkdev] Propagate line range for overlap-aware dedup in filtering.ts
+        startLine: range.range.start.line,
+        endLine: range.range.end.line,
+      };
+    });
 }
 
 const getClipboardSnippets = async (
@@ -204,6 +240,19 @@ export const getAllSnippets = async ({
       : [],
   ]);
 
+  // [zkdev] P1: Edit intent detection — gated behind experiment flag
+  const editIntentSnippet = helper.options
+    .experimental_enableEditIntentDetection
+    ? createEditIntentSnippet(
+        helper.input.recentlyEditedRanges,
+        helper.filepath,
+      )
+    : undefined;
+  const allStaticSnippets: AutocompleteStaticSnippet[] = [
+    ...staticSnippet,
+    ...(editIntentSnippet ? [editIntentSnippet] : []),
+  ];
+
   return {
     rootPathSnippets,
     importDefinitionSnippets,
@@ -211,9 +260,11 @@ export const getAllSnippets = async ({
     recentlyEditedRangeSnippets,
     diffSnippets,
     clipboardSnippets,
-    recentlyVisitedRangesSnippets: helper.input.recentlyVisitedRanges,
+    recentlyVisitedRangesSnippets: helper.input.recentlyVisitedRanges.filter(
+      (s) => findUriInDirs(s.filepath, helper.workspaceUris).foundInDir,
+    ),
     recentlyOpenedFileSnippets,
-    staticSnippet,
+    staticSnippet: allStaticSnippets,
   };
 };
 
@@ -231,6 +282,7 @@ export const getAllSnippetsWithoutRace = async ({
   const recentlyEditedRangeSnippets =
     getSnippetsFromRecentlyEditedRanges(helper);
 
+  // [zkdev] Added racePromise(200ms) to prevent 1600ms+ spikes from slow LSP/IO
   const [
     rootPathSnippets,
     importDefinitionSnippets,
@@ -240,28 +292,67 @@ export const getAllSnippetsWithoutRace = async ({
     recentlyOpenedFileSnippets,
     staticSnippet,
   ] = await Promise.all([
-    contextRetrievalService.getRootPathSnippets(helper),
-    contextRetrievalService.getSnippetsFromImportDefinitions(helper),
+    racePromise(contextRetrievalService.getRootPathSnippets(helper), 200),
+    racePromise(
+      contextRetrievalService.getSnippetsFromImportDefinitions(helper),
+      200,
+    ),
     IDE_SNIPPETS_ENABLED
-      ? getIdeSnippets(helper, ide, getDefinitionsFromLsp)
+      ? racePromise(getIdeSnippets(helper, ide, getDefinitionsFromLsp), 200)
       : [],
     [], // racePromise(getDiffSnippets(ide)) // temporarily disabled, see https://github.com/continuedev/continue/pull/5882,
-    getClipboardSnippets(ide),
-    getSnippetsFromRecentlyOpenedFiles(helper, ide),
+    racePromise(getClipboardSnippets(ide), 200),
+    racePromise(getSnippetsFromRecentlyOpenedFiles(helper, ide), 200),
     helper.options.experimental_enableStaticContextualization
-      ? contextRetrievalService.getStaticContextSnippets(helper)
+      ? racePromise(
+          contextRetrievalService.getStaticContextSnippets(helper),
+          200,
+        )
       : [],
   ]);
 
-  return {
+  // [zkdev] P1: Edit intent detection — gated behind experiment flag
+  const editIntentSnippet2 = helper.options
+    .experimental_enableEditIntentDetection
+    ? createEditIntentSnippet(
+        helper.input.recentlyEditedRanges,
+        helper.filepath,
+      )
+    : undefined;
+  const allStaticSnippets2: AutocompleteStaticSnippet[] = [
+    ...staticSnippet,
+    ...(editIntentSnippet2 ? [editIntentSnippet2] : []),
+  ];
+
+  const result: SnippetPayload = {
     rootPathSnippets,
     importDefinitionSnippets,
     ideSnippets,
     recentlyEditedRangeSnippets,
     diffSnippets,
     clipboardSnippets,
-    recentlyVisitedRangesSnippets: helper.input.recentlyVisitedRanges,
+    recentlyVisitedRangesSnippets: helper.input.recentlyVisitedRanges.filter(
+      (s) => findUriInDirs(s.filepath, helper.workspaceUris).foundInDir,
+    ),
     recentlyOpenedFileSnippets,
-    staticSnippet,
+    staticSnippet: allStaticSnippets2,
   };
+
+  // [zkdev] Snippet source count log — helps verify which sources provided context
+  console.log(
+    `[Autocomplete SnippetCounts] ` +
+      `edited=${recentlyEditedRangeSnippets.length} ` +
+      `visited=${helper.input.recentlyVisitedRanges.length} ` +
+      `opened=${recentlyOpenedFileSnippets.length} ` +
+      `rootPath=${rootPathSnippets.length} ` +
+      `importDef=${importDefinitionSnippets.length} ` +
+      `static=${allStaticSnippets2.length} ` +
+      `diff=${diffSnippets.length} ` +
+      `clipboard=${clipboardSnippets.length}` +
+      (helper.input.recentlyVisitedRanges.length > 0
+        ? ` visitedFiles=[${helper.input.recentlyVisitedRanges.map((s) => s.filepath.split("/").pop()).join(",")}]`
+        : ""),
+  );
+
+  return result;
 };

@@ -1,9 +1,11 @@
 import { IDE } from "core";
+import { QueueManager } from "core/autocomplete/context/QueueManager";
 import {
   AutocompleteCodeSnippet,
   AutocompleteSnippetType,
 } from "core/autocomplete/snippets/types";
 import { isSecurityConcern } from "core/indexing/ignore";
+import { PosthogFeatureFlag, Telemetry } from "core/util/posthog";
 import { LRUCache } from "lru-cache";
 import * as vscode from "vscode";
 
@@ -16,12 +18,19 @@ export class RecentlyVisitedRangesService {
     Array<AutocompleteCodeSnippet & { timestamp: number }>
   >;
   // Default value, we override in initWithPostHog
-  private numSurroundingLines = 20;
-  private maxRecentFiles = 3;
+  // [zkdev] Increased from 20→30 to capture broader cursor context with 4096 token budget
+  private numSurroundingLines = 30;
+  // [zkdev] Expanded from 3→5 to cover more of the working set;
+  // with priority reorder (visitedRanges=2 > openedFiles=3), cursor-aware
+  // snippets from these files take precedence over full-file fallback
+  private maxRecentFiles = 5;
   private maxSnippetsPerFile = 3;
   private isEnabled = true;
 
-  constructor(private readonly ide: IDE) {
+  constructor(
+    private readonly ide: IDE,
+    private readonly queueManager?: QueueManager,
+  ) {
     this.cache = new LRUCache<
       string,
       Array<AutocompleteCodeSnippet & { timestamp: number }>
@@ -33,18 +42,19 @@ export class RecentlyVisitedRangesService {
   }
 
   private async initWithPostHog() {
-    // TODO merge this and re-enable https://github.com/continuedev/continue/pull/8364
-    // const recentlyVisitedRangesNumSurroundingLines =
-    //   await Telemetry.getValueForFeatureFlag(
-    //     PosthogFeatureFlag.RecentlyVisitedRangesNumSurroundingLines,
-    //   );
-    // if (recentlyVisitedRangesNumSurroundingLines) {
-    //   this.isEnabled = true;
-    //   this.numSurroundingLines = recentlyVisitedRangesNumSurroundingLines;
-    // }
-    // vscode.window.onDidChangeTextEditorSelection(
-    //   this.cacheCurrentSelectionContext,
-    // );
+    const recentlyVisitedRangesNumSurroundingLines =
+      await Telemetry.getValueForFeatureFlag(
+        PosthogFeatureFlag.RecentlyVisitedRangesNumSurroundingLines,
+      );
+
+    if (recentlyVisitedRangesNumSurroundingLines) {
+      this.isEnabled = true;
+      this.numSurroundingLines = recentlyVisitedRangesNumSurroundingLines;
+    }
+
+    vscode.window.onDidChangeTextEditorSelection(
+      this.cacheCurrentSelectionContext,
+    );
   }
 
   private cacheCurrentSelectionContext = async (
@@ -63,17 +73,25 @@ export class RecentlyVisitedRangesService {
     );
 
     try {
-      const fileContents = await this.ide.readFile(filepath);
-      const lines = fileContents.split("\n");
-      const relevantLines = lines
-        .slice(startLine, endLine + 1)
-        .join("\n")
-        .trim();
+      // [zkdev] P0 fix: Read directly from editor document model (in-memory)
+      // instead of ide.readFile() which does full-file disk IO on every selection change.
+      // document.getText(range) is zero-IO: reads from VS Code's in-memory TextDocument.
+      // Compatible with VS Code 1.70.0+ (TextDocument.getText exists since API v1.0).
+      const range = new vscode.Range(
+        startLine,
+        0,
+        endLine,
+        event.textEditor.document.lineAt(endLine).text.length,
+      );
+      const relevantLines = event.textEditor.document.getText(range).trim();
 
       const snippet: AutocompleteCodeSnippet & { timestamp: number } = {
         filepath,
         content: relevantLines,
         type: AutocompleteSnippetType.Code,
+        // [zkdev] Propagate line range for overlap-aware dedup in filtering.ts
+        startLine,
+        endLine,
         timestamp: Date.now(),
       };
 
@@ -83,6 +101,11 @@ export class RecentlyVisitedRangesService {
         .slice(0, this.maxSnippetsPerFile);
 
       this.cache.set(filepath, newSnippets);
+
+      // Push to shared context queue (Phase 2)
+      if (this.queueManager) {
+        this.queueManager.pushVisited(filepath, relevantLines, startLine, endLine);
+      }
     } catch (err) {
       console.error(
         "Error caching recently visited ranges for autocomplete: ",
@@ -120,11 +143,10 @@ export class RecentlyVisitedRangesService {
         (s) =>
           !currentFilepath ||
           (s.filepath !== currentFilepath &&
-            // Exclude Continue's own output as it makes it super-hard for users to test the autocomplete feature
-            // while looking at the prompts in the Continue's output
-            !s.filepath.startsWith(
-              "output:extension-output-Continue.continue",
-            )),
+            // [zkdev] Exclude ALL output panels (output:exthost, output:extension-output-*, etc.)
+            // These contain VS Code internal logs, not code — they pollute prompt context.
+            // Previously only filtered Continue's own output; now filters any output: URI.
+            !s.filepath.startsWith("output:")),
       )
       .sort((a, b) => b.timestamp - a.timestamp)
       .map(({ timestamp, ...snippet }) => snippet);

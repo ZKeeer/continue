@@ -1,11 +1,12 @@
 import { IDE, RangeInFileWithContents } from "../..";
 import { PrecalculatedLruCache } from "../../util/LruCache";
 import {
-  getFullLanguageName,
-  getParserForFile,
-  getQueryForFile,
+    getFullLanguageName,
+    getParserForFile,
+    getQueryForFile,
 } from "../../util/treeSitter";
 import { findUriInDirs } from "../../util/uri";
+import { GotoDefinitionCache } from "./GotoDefinitionCache";
 
 interface FileInfo {
   imports: { [key: string]: RangeInFileWithContents[] };
@@ -20,7 +21,10 @@ export class ImportDefinitionsService {
       ImportDefinitionsService.N,
     );
 
-  constructor(private readonly ide: IDE) {
+  constructor(
+    private readonly ide: IDE,
+    private readonly gotoDefCache?: GotoDefinitionCache,
+  ) {
     ide.onDidChangeActiveTextEditor((filepath) => {
       this.cache
         .initKey(filepath)
@@ -91,21 +95,38 @@ export class ImportDefinitionsService {
     const fileInfo: FileInfo = {
       imports: {},
     };
-    for (const match of matches) {
-      const startPosition = match.captures[0].node.startPosition;
-      const defs = await this.ide.gotoDefinition({
-        filepath,
-        position: {
-          line: startPosition.row,
-          character: startPosition.column,
-        },
-      });
-      fileInfo.imports[match.captures[0].node.text] = await Promise.all(
-        defs.map(async (def) => ({
-          ...def,
-          contents: await this.ide.readRangeInFile(def.filepath, def.range),
-        })),
-      );
+
+    // [zkdev] Parallelize gotoDefinition calls + 150ms timeout per call
+    // Original code was serial for-loop, causing 200ms*N sequential latency
+    const importResults = await Promise.all(
+      matches.map(async (match) => {
+        const symbolName = match.captures[0].node.text;
+        const startPosition = match.captures[0].node.startPosition;
+        const location = {
+          filepath,
+          position: {
+            line: startPosition.row,
+            character: startPosition.column,
+          },
+        };
+        const gotoFn = this.gotoDefCache
+          ? this.gotoDefCache.gotoDefinition(location)
+          : this.ide.gotoDefinition(location);
+        const defs = await Promise.race([
+          gotoFn,
+          new Promise<any[]>((resolve) => setTimeout(() => resolve([]), 150)),
+        ]);
+        const ranges = await Promise.all(
+          defs.map(async (def) => ({
+            ...def,
+            contents: await this.ide.readRangeInFile(def.filepath, def.range),
+          })),
+        );
+        return { symbolName, ranges };
+      }),
+    );
+    for (const { symbolName, ranges } of importResults) {
+      fileInfo.imports[symbolName] = ranges;
     }
 
     return fileInfo;

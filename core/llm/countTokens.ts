@@ -18,7 +18,6 @@ import {
 import { renderChatMessage } from "../util/messageContent.js";
 import { AsyncEncoder, LlamaAsyncEncoder } from "./asyncEncoder.js";
 import { DEFAULT_PRUNING_LENGTH } from "./constants.js";
-import { getAdjustedTokenCountFromModel } from "./getAdjustedTokenCount.js";
 import llamaTokenizer from "./llamaTokenizer.js";
 interface Encoding {
   encode: Tiktoken["encode"];
@@ -115,9 +114,8 @@ function countTokens(
   modelName = "llama2",
 ): number {
   const encoding = encodingForModel(modelName);
-  let baseTokens = 0;
   if (Array.isArray(content)) {
-    baseTokens = content.reduce((acc, part) => {
+    return content.reduce((acc, part) => {
       return (
         acc +
         (part.type === "text"
@@ -126,9 +124,8 @@ function countTokens(
       );
     }, 0);
   } else {
-    baseTokens = encoding.encode(content ?? "", "all", []).length;
+    return encoding.encode(content ?? "", "all", []).length;
   }
-  return getAdjustedTokenCountFromModel(baseTokens, modelName);
 }
 
 // https://community.openai.com/t/how-to-calculate-the-tokens-when-using-function-call/266573/10
@@ -268,6 +265,57 @@ function extractToolSequence(messages: ChatMessage[]): ChatMessage[] {
   }
 
   return toolSequence;
+}
+
+// [zkdev] Ratio used for fast character-based token estimation (chars-per-token)
+const CHARS_PER_TOKEN_ESTIMATE = 3.5;
+
+function estimateTokensFast(text: string): number {
+  return Math.ceil(text.length / CHARS_PER_TOKEN_ESTIMATE);
+}
+
+/**
+ * Fast version of pruneLinesFromTop using character-based token estimation.
+ * Avoids expensive per-line tokenizer calls — suitable for autocomplete hot path.
+ */
+function pruneLinesFromTopFast(prompt: string, maxTokens: number): string {
+  const lines = prompt.split("\n");
+  const lineTokens = lines.map((line) => estimateTokensFast(line));
+  let totalTokens = lineTokens.reduce((sum, t) => sum + t, 0);
+  let start = 0;
+  const count = lines.length;
+  totalTokens += Math.max(0, count - 1);
+
+  while (totalTokens > maxTokens && start < count) {
+    totalTokens -= lineTokens[start];
+    if (count - start > 1) {
+      totalTokens--;
+    }
+    start++;
+  }
+
+  return lines.slice(start).join("\n");
+}
+
+/**
+ * Fast version of pruneLinesFromBottom using character-based token estimation.
+ */
+function pruneLinesFromBottomFast(prompt: string, maxTokens: number): string {
+  const lines = prompt.split("\n");
+  const lineTokens = lines.map((line) => estimateTokensFast(line));
+  let totalTokens = lineTokens.reduce((sum, t) => sum + t, 0);
+  let end = lines.length;
+  totalTokens += Math.max(0, end - 1);
+
+  while (totalTokens > maxTokens && end > 0) {
+    end--;
+    totalTokens -= lineTokens[end];
+    if (end > 0) {
+      totalTokens--;
+    }
+  }
+
+  return lines.slice(0, end).join("\n");
 }
 
 function pruneLinesFromTop(
@@ -552,9 +600,12 @@ export {
   compileChatMessages,
   countTokens,
   countTokensAsync,
+  estimateTokensFast,
   extractToolSequence,
   pruneLinesFromBottom,
+  pruneLinesFromBottomFast,
   pruneLinesFromTop,
+  pruneLinesFromTopFast,
   pruneRawPromptFromTop,
   pruneStringFromBottom,
   pruneStringFromTop,

@@ -11,9 +11,9 @@ import com.github.continuedev.continueintellijextension.error.ContinueSentryServ
 import com.github.continuedev.continueintellijextension.protocol.*
 import com.github.continuedev.continueintellijextension.services.ContinueExtensionSettings
 import com.github.continuedev.continueintellijextension.services.ContinuePluginService
-import com.github.continuedev.continueintellijextension.services.GsonService
 import com.github.continuedev.continueintellijextension.utils.getMachineUniqueID
 import com.github.continuedev.continueintellijextension.utils.uuid
+import com.google.gson.Gson
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.openapi.components.service
@@ -34,8 +34,7 @@ import java.awt.datatransfer.StringSelection
 class IdeProtocolClient(
     private val continuePluginService: ContinuePluginService,
     private val coroutineScope: CoroutineScope,
-    private val project: Project,
-    private val gsonService: GsonService = service<GsonService>(),
+    private val project: Project
 ) : DumbAware {
     private val ide: IDE = IntelliJIDE(project, continuePluginService)
     private val diffStreamService = project.service<DiffStreamService>()
@@ -52,7 +51,7 @@ class IdeProtocolClient(
 
     fun handleMessage(msg: String, respond: (Any?) -> Unit) {
         coroutineScope.launch(limitedDispatcher) {
-            val message = gsonService.gson.fromJson(msg, Message::class.java)
+            val message = Gson().fromJson(msg, Message::class.java)
             val messageType = message.messageType
             val dataElement = message.data
 
@@ -86,7 +85,7 @@ class IdeProtocolClient(
                     }
 
                     "showFile" -> {
-                        val params = gsonService.gson.fromJson(
+                        val params = Gson().fromJson(
                             dataElement.toString(),
                             ShowFilePayload::class.java
                         )
@@ -100,7 +99,7 @@ class IdeProtocolClient(
                     }
 
                     "getControlPlaneSessionInfo" -> {
-                        val params = gsonService.gson.fromJson(
+                        val params = Gson().fromJson(
                             dataElement.toString(),
                             GetControlPlaneSessionInfoParams::class.java
                         )
@@ -133,7 +132,7 @@ class IdeProtocolClient(
                     }
 
                     "copyText" -> {
-                        val params = gsonService.gson.fromJson(
+                        val params = Gson().fromJson(
                             dataElement.toString(),
                             CopyTextParams::class.java
                         )
@@ -145,7 +144,7 @@ class IdeProtocolClient(
                     }
 
                     "showDiff" -> {
-                        val params = gsonService.gson.fromJson(
+                        val params = Gson().fromJson(
                             dataElement.toString(),
                             ShowDiffParams::class.java
                         )
@@ -154,7 +153,7 @@ class IdeProtocolClient(
                     }
 
                     "readFile" -> {
-                        val params = gsonService.gson.fromJson(
+                        val params = Gson().fromJson(
                             dataElement.toString(),
                             ReadFileParams::class.java
                         )
@@ -162,8 +161,13 @@ class IdeProtocolClient(
                         respond(contents)
                     }
 
+                    "isTelemetryEnabled" -> {
+                        val isEnabled = ide.isTelemetryEnabled()
+                        respond(isEnabled)
+                    }
+
                     "readRangeInFile" -> {
-                        val params = gsonService.gson.fromJson(
+                        val params = Gson().fromJson(
                             dataElement.toString(),
                             ReadRangeInFileParams::class.java
                         )
@@ -177,7 +181,7 @@ class IdeProtocolClient(
                     }
 
                     "getTags" -> {
-                        val artifactId = gsonService.gson.fromJson(
+                        val artifactId = Gson().fromJson(
                             dataElement.toString(),
                             getTagsParams::class.java
                         )
@@ -196,7 +200,7 @@ class IdeProtocolClient(
                     }
 
                     "saveFile" -> {
-                        val params = gsonService.gson.fromJson(
+                        val params = Gson().fromJson(
                             dataElement.toString(),
                             SaveFileParams::class.java
                         )
@@ -205,7 +209,7 @@ class IdeProtocolClient(
                     }
 
                     "showVirtualFile" -> {
-                        val params = gsonService.gson.fromJson(
+                        val params = Gson().fromJson(
                             dataElement.toString(),
                             ShowVirtualFileParams::class.java
                         )
@@ -214,7 +218,7 @@ class IdeProtocolClient(
                     }
 
                     "showLines" -> {
-                        val params = gsonService.gson.fromJson(
+                        val params = Gson().fromJson(
                             dataElement.toString(),
                             ShowLinesParams::class.java
                         )
@@ -223,7 +227,7 @@ class IdeProtocolClient(
                     }
 
                     "getFileStats" -> {
-                        val params = gsonService.gson.fromJson(
+                        val params = Gson().fromJson(
                             dataElement.toString(),
                             GetFileStatsParams::class.java
                         )
@@ -232,7 +236,7 @@ class IdeProtocolClient(
                     }
 
                     "listDir" -> {
-                        val params = gsonService.gson.fromJson(
+                        val params = Gson().fromJson(
                             dataElement.toString(),
                             ListDirParams::class.java
                         )
@@ -243,7 +247,7 @@ class IdeProtocolClient(
                     }
 
                     "getGitRootPath" -> {
-                        val params = gsonService.gson.fromJson(
+                        val params = Gson().fromJson(
                             dataElement.toString(),
                             GetGitRootPathParams::class.java
                         )
@@ -252,7 +256,7 @@ class IdeProtocolClient(
                     }
 
                     "getBranch" -> {
-                        val params = gsonService.gson.fromJson(
+                        val params = Gson().fromJson(
                             dataElement.toString(),
                             GetBranchParams::class.java
                         )
@@ -261,7 +265,7 @@ class IdeProtocolClient(
                     }
 
                     "getRepoName" -> {
-                        val params = gsonService.gson.fromJson(
+                        val params = Gson().fromJson(
                             dataElement.toString(),
                             GetRepoNameParams::class.java
                         )
@@ -270,7 +274,7 @@ class IdeProtocolClient(
                     }
 
                     "getDiff" -> {
-                        val params = gsonService.gson.fromJson(
+                        val params = Gson().fromJson(
                             dataElement.toString(),
                             GetDiffParams::class.java
                         )
@@ -284,7 +288,7 @@ class IdeProtocolClient(
                     }
 
                     "writeFile" -> {
-                        val params = gsonService.gson.fromJson(
+                        val params = Gson().fromJson(
                             dataElement.toString(),
                             WriteFileParams::class.java
                         )
@@ -293,7 +297,7 @@ class IdeProtocolClient(
                     }
 
                     "fileExists" -> {
-                        val params = gsonService.gson.fromJson(
+                        val params = Gson().fromJson(
                             dataElement.toString(),
                             FileExistsParams::class.java
                         )
@@ -302,7 +306,7 @@ class IdeProtocolClient(
                     }
 
                     "openFile" -> {
-                        val params = gsonService.gson.fromJson(
+                        val params = Gson().fromJson(
                             dataElement.toString(),
                             OpenFileParams::class.java
                         )
@@ -311,7 +315,7 @@ class IdeProtocolClient(
                     }
 
                     "runCommand" -> {
-                        val params = gsonService.gson.fromJson(
+                        val params = Gson().fromJson(
                             dataElement.toString(),
                             RunCommandParams::class.java
                         )
@@ -349,7 +353,7 @@ class IdeProtocolClient(
                     }
 
                     "getSearchResults" -> {
-                        val params = gsonService.gson.fromJson(
+                        val params = Gson().fromJson(
                             dataElement.toString(),
                             GetSearchResultsParams::class.java
                         )
@@ -358,7 +362,7 @@ class IdeProtocolClient(
                     }
 
                     "getFileResults" -> {
-                        val params = gsonService.gson.fromJson(
+                        val params = Gson().fromJson(
                             dataElement.toString(),
                             GetFileResultsParams::class.java
                         )
@@ -382,7 +386,7 @@ class IdeProtocolClient(
                     }
 
                     "openUrl" -> {
-                        val url = gsonService.gson.fromJson(
+                        val url = Gson().fromJson(
                             dataElement.toString(),
                             OpenUrlParam::class.java
                         )
@@ -391,7 +395,7 @@ class IdeProtocolClient(
                     }
 
                     "insertAtCursor" -> {
-                        val params = gsonService.gson.fromJson(
+                        val params = Gson().fromJson(
                             dataElement.toString(),
                             InsertAtCursorParams::class.java
                         )
@@ -411,7 +415,7 @@ class IdeProtocolClient(
                     }
 
                     "acceptDiff" -> {
-                        val params = gsonService.gson.fromJson(
+                        val params = Gson().fromJson(
                             dataElement.toString(),
                             AcceptOrRejectDiffPayload::class.java
                         )
@@ -427,7 +431,7 @@ class IdeProtocolClient(
                     }
 
                     "rejectDiff" -> {
-                        val params = gsonService.gson.fromJson(
+                        val params = Gson().fromJson(
                             dataElement.toString(),
                             AcceptOrRejectDiffPayload::class.java
                         )
@@ -442,7 +446,7 @@ class IdeProtocolClient(
                     }
 
                     "applyToFile" -> {
-                        val params = gsonService.gson.fromJson(
+                        val params = Gson().fromJson(
                             dataElement.toString(),
                             ApplyToFileParams::class.java
                         )
@@ -454,6 +458,15 @@ class IdeProtocolClient(
                             params
                         )
                         respond(null)
+                    }
+
+                    "getDocumentSymbols" -> {
+                        val params = Gson().fromJson(
+                            dataElement.toString(),
+                            GetDocumentSymbolsParams::class.java
+                        )
+                        val symbols = ide.getDocumentSymbols(params.textDocumentIdentifier)
+                        respond(symbols)
                     }
 
                     else -> {

@@ -63,3 +63,5 @@ data class ListDirParams(val dir: String)
 data class GetFileStatsParams(val files: List<String>)
 
 data class RunCommandParams(val command: String, val options: TerminalOptions?)
+
+data class GetDocumentSymbolsParams(val textDocumentIdentifier: String)

@@ -468,42 +468,30 @@ export async function executeSymbolProvider(
 
     const results: DocumentSymbol[] = [];
 
-    // Handle both possible return types from the symbol provider
-    if (symbols.length > 0) {
-      // if ("location" in symbols[0]) {
-      //   // SymbolInformation type
-      //   results.push(
-      //     ...symbols.map((s: vscode.SymbolInformation) => ({
-      //       filepath: s.location.uri.toString(),
-      //       range: s.location.range,
-      //     })),
-      //   );
-      // } else {
-      // DocumentSymbol type - collect symbols recursively
-      function collectSymbols(
-        symbols: vscode.DocumentSymbol[],
-        uri: vscode.Uri,
-      ): DocumentSymbol[] {
-        const result: DocumentSymbol[] = [];
-        for (const symbol of symbols) {
-          result.push({
-            name: symbol.name,
-            range: symbol.range,
-            selectionRange: symbol.selectionRange,
-            kind: symbol.kind,
-          });
-
-          if (symbol.children && symbol.children.length > 0) {
-            result.push(...collectSymbols(symbol.children, uri));
+    // [zkdev] vscode.executeDocumentSymbolProvider returns undefined when
+    // language service is not ready (e.g. extension still loading).
+    // The `as` cast doesn't guarantee an array at runtime.
+    if (Array.isArray(symbols) && symbols.length > 0) {
+      // DocumentSymbol type - preserve tree structure (children) for scope detection
+      function toDocumentSymbol(symbol: vscode.DocumentSymbol): DocumentSymbol {
+        const children: DocumentSymbol[] = [];
+        if (symbol.children && symbol.children.length > 0) {
+          for (const child of symbol.children) {
+            children.push(toDocumentSymbol(child));
           }
         }
-        return result;
+        return {
+          name: symbol.name,
+          range: symbol.range,
+          selectionRange: symbol.selectionRange,
+          kind: symbol.kind,
+          ...(children.length > 0 ? { children } : {}),
+        };
       }
 
-      results.push(
-        ...collectSymbols(symbols as vscode.DocumentSymbol[], input.uri),
-      );
-      // }
+      for (const symbol of symbols as vscode.DocumentSymbol[]) {
+        results.push(toDocumentSymbol(symbol));
+      }
     }
 
     // Add to cache

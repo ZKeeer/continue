@@ -38,8 +38,14 @@ export interface AutocompleteOutcome extends TabAutocompleteOptions {
   accepted?: boolean;
   time: number;
   stageTimings?: AutocompleteStageTimings;
+  /** Compiled prefix (after template/snippet injection) — used for prompt, NOT for caching */
   prefix: string;
+  /** Compiled suffix (after template injection) — used for prompt, NOT for caching */
   suffix: string;
+  /** Raw document prefix (before template compilation) — used as stable cache key */
+  documentPrefix: string;
+  /** Raw document suffix (before template compilation) */
+  documentSuffix: string;
   prompt: string;
   completion: string;
   modelProvider: string;

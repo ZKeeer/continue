@@ -1316,6 +1316,12 @@ export interface TabAutocompleteOptions {
   experimental_includeRecentlyEditedRanges: boolean | number;
   experimental_includeDiff: boolean | number;
   experimental_enableStaticContextualization: boolean;
+  /** [zkdev] Enable predictive prefetch after accepting completions */
+  experimental_enablePrefetch?: boolean;
+  /** [zkdev] Enable edit intent detection (injects editing pattern hints into prompt) */
+  experimental_enableEditIntentDetection?: boolean;
+  /** [zkdev] Enable similar edit detection (pre-populates cache at predicted locations) */
+  experimental_enableSimilarEditDetection?: boolean;
 }
 
 export interface StdioOptions {

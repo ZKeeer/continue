@@ -35,6 +35,14 @@ import { BlockType, getBlockType } from "./getBlockType.js";
 export function parseConfigYaml(configYaml: string): ConfigYaml {
   try {
     const parsed = YAML.parse(configYaml);
+
+    // Empty or null yaml files (e.g. newly created but not yet edited block files)
+    if (parsed == null) {
+      throw new Error("Config file is empty", {
+        cause: "result.success was false",
+      });
+    }
+
     const result = configYamlSchema.safeParse(parsed);
     if (result.success) {
       return result.data;

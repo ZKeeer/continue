@@ -4,6 +4,7 @@ class MessageTypes {
     companion object {
         val IDE_MESSAGE_TYPES = listOf(
             "readRangeInFile",
+            "isTelemetryEnabled",
             "getUniqueId",
             "getDiff",
             "getTerminalContents",
@@ -32,6 +33,7 @@ class MessageTypes {
             "listDir",
             "getGitRootPath",
             "getFileStats",
+            "getDocumentSymbols",
             "insertAtCursor",
             "applyToFile",
             "getControlPlaneSessionInfo",
@@ -84,8 +86,6 @@ class MessageTypes {
             "config/newAssistantFile",
             "config/ideSettingsUpdate",
             "config/addLocalWorkspaceBlock",
-            "config/addGlobalRule",
-            "config/deleteRule",
             "config/getSerializedProfileInfo",
             "config/deleteModel",
             "config/refreshProfiles",
@@ -123,7 +123,6 @@ class MessageTypes {
             "llm/listModels",
             "llm/compileChat",
             "streamDiffLines",
-            "getDiffLines",
             "chatDescriber/describe",
             "conversation/compact",
             "stats/getTokensPerDay",

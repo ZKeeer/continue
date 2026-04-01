@@ -30,10 +30,13 @@ import com.intellij.openapi.project.guessProjectDir
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.psi.PsiDocumentManager
+import com.intellij.psi.PsiElement
+import com.intellij.psi.PsiNameIdentifierOwner
+import com.intellij.openapi.editor.Document as IdeDocument
 import com.intellij.testFramework.LightVirtualFile
 import kotlinx.coroutines.*
 import org.jetbrains.plugins.terminal.ShellTerminalWidget
-import org.jetbrains.plugins.terminal.TerminalToolWindowManager
+import org.jetbrains.plugins.terminal.TerminalView
 import java.awt.Toolkit
 import java.awt.datatransfer.DataFlavor
 import java.io.BufferedReader
@@ -60,8 +63,8 @@ class IntelliJIDE(
         "*.db", "*.sqlite", "*.sqlite3", "*.mdb", "*.accdb",
         
         // Credential and secret files
-        "*.secret", "*.secrets", "credentials", "auth.json",
-        "token", "*.token",
+        "*.secret", "*.secrets", "credentials", "credentials.*", "auth.json",
+        "token", "token.*", "*.token",
         
         // Backup files that might contain sensitive data
         "*.bak", "*.backup", "*.old", "*.orig",
@@ -191,6 +194,10 @@ class IntelliJIDE(
         return mapOf("text" to text)
     }
 
+    override suspend fun isTelemetryEnabled(): Boolean {
+        return true
+    }
+
     override suspend fun isWorkspaceRemote(): Boolean {
         return this.getIdeInfo().remoteName != "local"
     }
@@ -204,10 +211,10 @@ class IntelliJIDE(
             try {
                 val toolWindow = ToolWindowManager.getInstance(project).getToolWindow("Terminal")
 
-                val terminalManager = TerminalToolWindowManager.getInstance(project)
+                val terminalView = TerminalView.getInstance(project)
                 // Find the first terminal widget selected, whatever its state, running command or not.
-                val widget = terminalManager.getWidgets().filterIsInstance<ShellTerminalWidget>().firstOrNull {
-                    toolWindow?.contentManager?.getContent(it)?.isSelected ?: false
+                val widget = terminalView.getWidgets().filterIsInstance<ShellTerminalWidget>().firstOrNull {
+                    toolWindow?.getContentManager()?.getContent(it)?.isSelected ?: false
                 }
 
                 if (widget != null) {
@@ -253,11 +260,6 @@ class IntelliJIDE(
             fileUtils.writeFile(path, contents)
         }
 
-    override suspend fun removeFile(path: String) =
-        withContext(Dispatchers.EDT) {
-            fileUtils.removeFile(path)
-        }
-
     override suspend fun showVirtualFile(title: String, contents: String) {
         val virtualFile = LightVirtualFile(title, contents)
         ApplicationManager.getApplication().invokeLater {
@@ -289,23 +291,23 @@ class IntelliJIDE(
                 val toolWindow = ToolWindowManager.getInstance(project).getToolWindow("Terminal")
                 toolWindow?.activate({
                     try {
-                        val terminalManager = TerminalToolWindowManager.getInstance(project)
+                        val terminalView = TerminalView.getInstance(project)
                         var widget: ShellTerminalWidget? = null
 
                         // 1. Handle reuseTerminal option
-                        if (terminalOptions.reuseTerminal == true && terminalManager.getWidgets().isNotEmpty()) {
+                        if (terminalOptions.reuseTerminal == true && terminalView.getWidgets().isNotEmpty()) {
                             // 2. Find by terminalName if provided
                             if (terminalOptions.terminalName != null) {
-                                widget = terminalManager.getWidgets().filterIsInstance<ShellTerminalWidget>()
+                                widget = terminalView.getWidgets().filterIsInstance<ShellTerminalWidget>()
                                     .firstOrNull {
                                         toolWindow.contentManager.getContent(it).tabName == terminalOptions.terminalName
                                                 && !it.hasRunningCommands()
                                     }
                             } else {
                                 // 3. Find active terminal, or fall back to the first one
-                                widget = terminalManager.getWidgets().filterIsInstance<ShellTerminalWidget>()
+                                widget = terminalView.getWidgets().filterIsInstance<ShellTerminalWidget>()
                                     .firstOrNull { toolWindow.contentManager.getContent(it).isSelected }
-                                    ?: terminalManager.getWidgets().filterIsInstance<ShellTerminalWidget>().firstOrNull {
+                                    ?: terminalView.getWidgets().filterIsInstance<ShellTerminalWidget>().firstOrNull {
                                         !it.hasRunningCommands()
                                     }
                             }
@@ -313,7 +315,7 @@ class IntelliJIDE(
 
                         // 4. Create a new terminal if needed
                         if (widget == null) {
-                            widget = terminalManager.createLocalShellWidget(
+                            widget = terminalView.createLocalShellWidget(
                                 project.basePath,
                                 terminalOptions.terminalName,
                                 true
@@ -689,7 +691,20 @@ class IntelliJIDE(
     }
 
     override suspend fun getDocumentSymbols(textDocumentIdentifier: String): List<DocumentSymbol> {
-        throw NotImplementedError("getDocumentSymbols not implemented yet")
+        return withContext(Dispatchers.EDT) {
+            try {
+                val path = UriUtils.uriToFile(textDocumentIdentifier).path
+                val vf = LocalFileSystem.getInstance().findFileByPath(path)
+                    ?: return@withContext emptyList<DocumentSymbol>()
+                val doc = FileDocumentManager.getInstance().getDocument(vf)
+                    ?: return@withContext emptyList<DocumentSymbol>()
+                val psiFile = PsiDocumentManager.getInstance(project).getPsiFile(doc)
+                    ?: return@withContext emptyList<DocumentSymbol>()
+                psiCollectSymbols(psiFile.children, doc)
+            } catch (_: Exception) {
+                emptyList()
+            }
+        }
     }
 
     override fun onDidChangeActiveTextEditor(callback: (filepath: String) -> Unit) {
@@ -720,6 +735,95 @@ class IntelliJIDE(
         }
 
         return listOfNotNull(project.guessProjectDir()?.toUriOrNull()).toTypedArray()
+    }
+
+    /**
+     * Map PSI element class name → LSP SymbolKind numeric value (matches core/util/symbolKind.ts).
+     * Uses simple class-name string matching to stay language-plugin-agnostic — no imports from
+     * language-specific plugins (PyCharm, CLion, GoLand, etc.) required.
+     *
+     * Covered IDEs: IntelliJ IDEA (Java/Kotlin), PyCharm (Python), CLion (C/C++), GoLand, WebStorm.
+     */
+    private fun psiSymbolKind(element: PsiElement): Int? {
+        val n = element::class.java.simpleName ?: return null
+        return when {
+            // Java / Android
+            n == "PsiClassImpl" || n == "PsiClass"         -> 4   // Class
+            n == "PsiMethodImpl" || n == "PsiMethod"       -> 5   // Method (includes constructors)
+            n == "PsiFieldImpl"  || n == "PsiField"        -> 7   // Field
+            n == "PsiEnumConstantImpl"                     -> 21  // EnumMember
+            // Kotlin
+            n == "KtClass" || n == "KtObjectDeclaration"  -> 4   // Class
+            n == "KtNamedFunction"                        -> 11  // Function
+            n == "KtPrimaryConstructor" || n == "KtSecondaryConstructor" -> 8  // Constructor
+            n == "KtProperty"                             -> 6   // Property
+            // Python (PyCharm)
+            n == "PyClass"                                -> 4   // Class
+            n == "PyFunction"                             -> 11  // Function
+            // Go (GoLand)
+            n == "GoTypeDeclaration" || n == "GoTypeSpec" -> 4   // Class/Struct
+            n == "GoFunctionDeclaration" || n == "GoMethodDeclaration" -> 11  // Function
+            // Generic suffix patterns for C++, Rust, Swift, Dart, Ruby, etc.
+            n.endsWith("ClassDecl") || n.endsWith("ClassDefinition") ||
+            n.endsWith("StructDecl") || n.endsWith("StructDefinition") -> 22  // Struct
+            n.endsWith("FunctionDecl") || n.endsWith("FunctionDef") ||
+            n.endsWith("MethodDecl")   || n.endsWith("MethodDef")   ||
+            n.endsWith("FunctionDefinition")              -> 11  // Function
+            else -> null
+        }
+    }
+
+    /** Convert a PsiElement text range to a Continue Range using line/character offsets. */
+    private fun psiToRange(element: PsiElement, doc: IdeDocument): Range {
+        val tr    = element.textRange
+        val start = tr.startOffset.coerceIn(0, doc.textLength)
+        val end   = tr.endOffset.coerceIn(start, doc.textLength)
+        val sl    = doc.getLineNumber(start)
+        val el    = doc.getLineNumber(end)
+        return Range(
+            Position(sl, start - doc.getLineStartOffset(sl)),
+            Position(el, end   - doc.getLineStartOffset(el))
+        )
+    }
+
+    /**
+     * Recursively walk PSI children and collect DocumentSymbols.
+     * - Recognised symbols: emitted as DocumentSymbol with their own children collected at depth+1.
+     * - Unrecognised wrappers (namespace, import list, etc.): transparent — recurse into children
+     *   at the same depth so their symbol descendants surface at the right level.
+     * - depth guard prevents runaway recursion on unusual PSI trees.
+     */
+    private fun psiCollectSymbols(
+        elements: Array<PsiElement>,
+        doc: IdeDocument,
+        depth: Int = 0,
+    ): List<DocumentSymbol> {
+        if (depth > 4) return emptyList()
+        val result = mutableListOf<DocumentSymbol>()
+        for (el in elements) {
+            val kind  = psiSymbolKind(el)
+            val named = el as? PsiNameIdentifierOwner
+            val name  = named?.name
+            if (kind != null && name != null) {
+                val range    = psiToRange(el, doc)
+                val nameEl   = named.nameIdentifier
+                val selRange = if (nameEl != null) psiToRange(nameEl, doc) else range
+                val children = psiCollectSymbols(el.children, doc, depth + 1)
+                result.add(
+                    DocumentSymbol(
+                        name          = name,
+                        kind          = kind,
+                        range         = range,
+                        selectionRange = selRange,
+                        children      = children.ifEmpty { null },
+                    )
+                )
+            } else {
+                // Transparent wrapper — recurse at same depth
+                result.addAll(psiCollectSymbols(el.children, doc, depth))
+            }
+        }
+        return result
     }
 
 }

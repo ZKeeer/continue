@@ -102,21 +102,29 @@ export function postprocessCompletion({
 }): string | undefined {
   // Don't return empty
   if (isBlank(completion)) {
+    console.log(
+      `[Autocomplete PostReject] reason=isBlank len=${completion.length}`,
+    );
     return undefined;
   }
 
   // Don't return whitespace
   if (isOnlyWhitespace(completion)) {
+    console.log(
+      `[Autocomplete PostReject] reason=isOnlyWhitespace len=${completion.length}`,
+    );
     return undefined;
   }
 
   // Dont return if it's just a repeat of the line above
   if (rewritesLineAbove(completion, prefix)) {
+    console.log(`[Autocomplete PostReject] reason=rewritesLineAbove`);
     return undefined;
   }
 
   // Filter out repetitions of many lines in a row
   if (isExtremeRepetition(completion)) {
+    console.log(`[Autocomplete PostReject] reason=isExtremeRepetition`);
     return undefined;
   }
 
@@ -195,6 +203,56 @@ export function postprocessCompletion({
 
   // Remove markdown code block delimiters
   completion = removeBackticks(completion);
+
+  // [zkdev] Suffix dedup: trim trailing overlap between completion and suffix
+  // e.g. completion="foo();\nbar();" suffix="\nbar();\nbaz();" → trim "\nbar();"
+  if (suffix.length > 0 && completion.length > 0) {
+    completion = trimSuffixOverlap(completion, suffix);
+  }
+
+  return completion;
+}
+
+/**
+ * [zkdev] Remove the longest suffix of `completion` that is a prefix of `suffix`.
+ * This prevents the completion from inserting text already present after the cursor.
+ */
+function trimSuffixOverlap(completion: string, suffix: string): string {
+  // Normalize whitespace for comparison: trim trailing whitespace on each line
+  const suffixTrimmed = suffix.replace(/^[\t ]*\n/, "\n");
+  const maxCheck = Math.min(completion.length, suffix.length);
+
+  let longestOverlap = 0;
+  for (let len = 1; len <= maxCheck; len++) {
+    const completionTail = completion.slice(-len);
+    const suffixHead = suffixTrimmed.slice(0, len);
+    if (completionTail === suffixHead) {
+      longestOverlap = len;
+    }
+  }
+
+  if (longestOverlap > 0) {
+    return completion.slice(0, -longestOverlap);
+  }
+
+  // Also check line-based overlap: if last lines of completion match first lines of suffix
+  const completionLines = completion.split("\n");
+  const suffixLines = suffix.split("\n");
+
+  for (
+    let overlapLines = Math.min(completionLines.length, suffixLines.length);
+    overlapLines >= 1;
+    overlapLines--
+  ) {
+    const tailLines = completionLines.slice(-overlapLines);
+    const headLines = suffixLines.slice(0, overlapLines);
+    const match = tailLines.every(
+      (line, i) => line.trim() === headLines[i].trim(),
+    );
+    if (match) {
+      return completionLines.slice(0, -overlapLines).join("\n");
+    }
+  }
 
   return completion;
 }

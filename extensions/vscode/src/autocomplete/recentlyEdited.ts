@@ -1,4 +1,5 @@
 import { RangeInFileWithContents } from "core";
+import { QueueManager } from "core/autocomplete/context/QueueManager";
 import { getSymbolsForSnippet } from "core/autocomplete/context/ranking";
 import { RecentlyEditedRange } from "core/autocomplete/util/types";
 import * as vscode from "vscode";
@@ -23,25 +24,29 @@ export class RecentlyEditedTracker {
   private recentlyEditedDocuments: VsCodeRecentlyEditedDocument[] = [];
   private static maxRecentlyEditedDocuments = 10;
 
-  constructor(private ideUtils: VsCodeIdeUtils) {
-    // TODO merge this and re-enable https://github.com/continuedev/continue/pull/8364
-    // vscode.workspace.onDidChangeTextDocument((event) => {
-    //   event.contentChanges.forEach((change) => {
-    //     const editedRange = {
-    //       uri: event.document.uri,
-    //       range: new vscode.Range(
-    //         new vscode.Position(change.range.start.line, 0),
-    //         new vscode.Position(change.range.end.line + 1, 0),
-    //       ),
-    //       timestamp: Date.now(),
-    //     };
-    //     this.insertRange(editedRange);
-    //   });
-    //   this.insertDocument(event.document.uri);
-    // });
-    // setInterval(() => {
-    //   this.removeOldEntries();
-    // }, 1000 * 15);
+  constructor(
+    private ideUtils: VsCodeIdeUtils,
+    private readonly queueManager?: QueueManager,
+  ) {
+    vscode.workspace.onDidChangeTextDocument((event) => {
+      event.contentChanges.forEach((change) => {
+        const editedRange = {
+          uri: event.document.uri,
+          range: new vscode.Range(
+            new vscode.Position(change.range.start.line, 0),
+            new vscode.Position(change.range.end.line + 1, 0),
+          ),
+          timestamp: Date.now(),
+        };
+        this.insertRange(editedRange);
+      });
+
+      this.insertDocument(event.document.uri);
+    });
+
+    setInterval(() => {
+      this.removeOldEntries();
+    }, 1000 * 15);
   }
 
   private async insertRange(
@@ -84,6 +89,19 @@ export class RecentlyEditedTracker {
         RecentlyEditedTracker.maxRecentlyEditedRanges,
       );
     }
+
+    // Push to shared context queue (Phase 2)
+    if (this.queueManager && contents) {
+      // [zkdev] Use padded line bounds matching ±2 padding from _getContentsForRange
+      const paddedStart = Math.max(0, editedRange.range.start.line - 2);
+      const paddedEnd = paddedStart + contents.split("\n").length - 1;
+      this.queueManager.pushEdited(
+        editedRange.uri.toString(),
+        contents,
+        paddedStart,
+        paddedEnd,
+      );
+    }
   }
 
   private insertDocument(uri: vscode.Uri): void {
@@ -117,11 +135,11 @@ export class RecentlyEditedTracker {
     if (content === null) {
       return "";
     }
-    return content
-      .toString()
-      .split("\n")
-      .slice(entry.range.start.line, entry.range.end.line + 1)
-      .join("\n");
+    const lines = content.toString().split("\n");
+    // [zkdev] ±2 line padding for focused context around edited ranges
+    const startLine = Math.max(0, entry.range.start.line - 2);
+    const endLine = Math.min(lines.length - 1, entry.range.end.line + 2);
+    return lines.slice(startLine, endLine + 1).join("\n");
   }
 
   public async getRecentlyEditedRanges(): Promise<RecentlyEditedRange[]> {

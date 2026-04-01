@@ -2,13 +2,13 @@
 
 import { CompletionOptions } from "../../index.js";
 import {
-  getLastNUriRelativePathParts,
-  getShortestUniqueRelativeUriPaths,
+    getLastNUriRelativePathParts,
+    getShortestUniqueRelativeUriPaths,
 } from "../../util/uri.js";
 import {
-  AutocompleteCodeSnippet,
-  AutocompleteSnippet,
-  AutocompleteSnippetType,
+    AutocompleteCodeSnippet,
+    AutocompleteSnippet,
+    AutocompleteSnippetType,
 } from "../snippets/types.js";
 
 export interface AutocompleteTemplate {
@@ -51,8 +51,7 @@ const stableCodeFimTemplate: AutocompleteTemplate = {
 };
 
 // https://github.com/QwenLM/Qwen2.5-Coder?tab=readme-ov-file#3-file-level-code-completion-fill-in-the-middle
-// This issue asks about the use of <|repo_name|> and <|file_sep|> together with <|fim_prefix|>, <|fim_suffix|> and <|fim_middle|>
-// https://github.com/QwenLM/Qwen2.5-Coder/issues/343
+// Simple single-file FIM template (kept as fallback)
 const qwenCoderFimTemplate: AutocompleteTemplate = {
   template:
     "<|fim_prefix|>{{{prefix}}}<|fim_suffix|>{{{suffix}}}<|fim_middle|>",
@@ -71,17 +70,72 @@ const qwenCoderFimTemplate: AutocompleteTemplate = {
   },
 };
 
-// https://www.ibm.com/granite/docs/models/granite#fim
-const granite4FimTemplate: AutocompleteTemplate = {
-  template:
-    "<|fim_prefix|>{{{prefix}}}<|fim_suffix|>{{{suffix}}}<|fim_middle|>",
+// [zkdev] Multi-file FIM template for Qwen-Coder series
+// Uses native <|repo_name|> and <|file_sep|> tokens instead of comment wrapping
+// Saves ~49% snippet token budget compared to comment-based formatting
+// Ref: https://github.com/QwenLM/Qwen2.5-Coder/issues/343
+const qwenCoderMultifileFimTemplate: AutocompleteTemplate = {
+  compilePrefixSuffix: (
+    prefix,
+    suffix,
+    filepath,
+    reponame,
+    snippets,
+    workspaceUris,
+  ): [string, string] => {
+    function getFileName(snippet: { uri: string; uniquePath: string }) {
+      return snippet.uri.startsWith("file://")
+        ? snippet.uniquePath
+        : snippet.uri;
+    }
+
+    const repoHeader = `<|repo_name|>${reponame}\n`;
+
+    if (snippets.length === 0) {
+      return [
+        `${repoHeader}<|file_sep|>${getLastNUriRelativePathParts(workspaceUris, filepath, 2)}\n${prefix}`,
+        suffix,
+      ];
+    }
+
+    const relativePaths = getShortestUniqueRelativeUriPaths(
+      [
+        ...snippets.map((snippet) =>
+          "filepath" in snippet ? snippet.filepath : "file:///Untitled.txt",
+        ),
+        filepath,
+      ],
+      workspaceUris,
+    );
+
+    const otherFiles = snippets
+      .map((snippet, i) => {
+        if (snippet.type === AutocompleteSnippetType.Diff) {
+          return snippet.content;
+        }
+        return `<|file_sep|>${getFileName(relativePaths[i])}\n${snippet.content}`;
+      })
+      .join("\n");
+
+    return [
+      `${repoHeader}${otherFiles}\n<|file_sep|>${getFileName(relativePaths[relativePaths.length - 1])}\n${prefix}`,
+      suffix,
+    ];
+  },
+  template: (prefix: string, suffix: string): string => {
+    return `<|fim_prefix|>${prefix}<|fim_suffix|>${suffix}<|fim_middle|>`;
+  },
   completionOptions: {
     stop: [
-      "<|end_of_text|>",
+      "<|endoftext|>",
       "<|fim_prefix|>",
       "<|fim_middle|>",
       "<|fim_suffix|>",
       "<|fim_pad|>",
+      "<|repo_name|>",
+      "<|file_sep|>",
+      "<|im_start|>",
+      "<|im_end|>",
     ],
   },
 };
@@ -192,7 +246,7 @@ const mercuryMultifileFimTemplate: AutocompleteTemplate = {
           suffix,
         ];
       }
-      return [`${prefix}`, suffix];
+      return [`<|fim_prefix|>${prefix}`, suffix];
     }
 
     const relativePaths = getShortestUniqueRelativeUriPaths(
@@ -454,11 +508,7 @@ export function getTemplateForModel(model: string): AutocompleteTemplate {
   }
 
   if (lowerCaseModel.includes("qwen") && lowerCaseModel.includes("coder")) {
-    return qwenCoderFimTemplate;
-  }
-
-  if (lowerCaseModel.includes("granite") && lowerCaseModel.includes("4")) {
-    return granite4FimTemplate;
+    return qwenCoderMultifileFimTemplate;
   }
 
   if (lowerCaseModel.includes("seed") && lowerCaseModel.includes("coder")) {

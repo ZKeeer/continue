@@ -5,12 +5,11 @@ import { AutocompleteLanguageInfo } from "../constants/AutocompleteLanguageInfo"
 import { HelperVars } from "../util/HelperVars";
 
 import { ILLM } from "../../index.js";
-import { DEFAULT_MAX_TOKENS } from "../../llm/constants.js";
 import {
-  countTokens,
+  estimateTokensFast,
   getTokenCountingBufferSafety,
-  pruneLinesFromBottom,
-  pruneLinesFromTop,
+  pruneLinesFromBottomFast,
+  pruneLinesFromTopFast,
 } from "../../llm/countTokens";
 import { getUriPathBasename } from "../../util/uri";
 import { SnippetPayload } from "../snippets";
@@ -22,6 +21,10 @@ import {
 import { getSnippets } from "./filtering";
 import { formatSnippets } from "./formatting";
 import { getStopTokens } from "./getStopTokens";
+
+// [zkdev] P2: Autocomplete completions typically need 50-150 tokens.
+// Capping at 256 reduces sglang KV cache preallocation per request.
+const AUTOCOMPLETE_MAX_TOKENS = 256;
 
 function getTemplate(helper: HelperVars): AutocompleteTemplate {
   if (helper.options.template) {
@@ -148,6 +151,7 @@ export function renderPrompt({
     prefix: compiledPrefix,
     suffix: compiledSuffix,
     completionOptions: {
+      maxTokens: AUTOCOMPLETE_MAX_TOKENS,
       ...completionOptions,
       stop: stopTokens,
     },
@@ -202,10 +206,18 @@ function buildPrompt(
 
 function pruneLength(llm: ILLM, prompt: string): number {
   const contextLength = llm.contextLength;
-  const reservedTokens = llm.completionOptions.maxTokens ?? DEFAULT_MAX_TOKENS;
+  // [zkdev] Cap reserved tokens at AUTOCOMPLETE_MAX_TOKENS (256) since autocomplete
+  // generation is capped there. Use Math.min to ensure 256 overrides even when
+  // llm.completionOptions.maxTokens is pre-set to a larger default (e.g. 4096).
+  const reservedTokens = Math.min(
+    llm.completionOptions.maxTokens ?? AUTOCOMPLETE_MAX_TOKENS,
+    AUTOCOMPLETE_MAX_TOKENS,
+  );
   const safetyBuffer = getTokenCountingBufferSafety(contextLength);
   const maxAllowedPromptTokens = contextLength - reservedTokens - safetyBuffer;
-  const promptTokenCount = countTokens(prompt, llm.model);
+  // [zkdev] Use fast char-based estimation to avoid expensive tokenizer call.
+  // Exact token counting is not needed here — we only need to detect overflow.
+  const promptTokenCount = estimateTokensFast(prompt);
   return promptTokenCount - maxAllowedPromptTokens;
 }
 
@@ -258,9 +270,13 @@ export function renderPromptWithTokenLimit({
   if (llm) {
     const prune = pruneLength(llm, prompt);
     if (prune > 0) {
+      // [zkdev] Use fast char-based estimation for the overflow pruning path.
+      // The original code called countTokens() (llamaTokenizer) per-line,
+      // adding 200-400ms. Fast estimation is sufficient here — the initial
+      // prunePrefixSuffix already did a coarse cut, this is just a safety net.
       const tokensToDrop = prune;
-      const prefixTokenCount = countTokens(prefix, helper.modelName);
-      const suffixTokenCount = countTokens(suffix, helper.modelName);
+      const prefixTokenCount = estimateTokensFast(prefix);
+      const suffixTokenCount = estimateTokensFast(suffix);
       const totalContextTokens = prefixTokenCount + suffixTokenCount;
       if (totalContextTokens > 0) {
         const dropPrefix = Math.ceil(
@@ -269,16 +285,8 @@ export function renderPromptWithTokenLimit({
         const dropSuffix = Math.ceil(tokensToDrop - dropPrefix);
         const allowedPrefixTokens = Math.max(0, prefixTokenCount - dropPrefix);
         const allowedSuffixTokens = Math.max(0, suffixTokenCount - dropSuffix);
-        prefix = pruneLinesFromTop(
-          prefix,
-          allowedPrefixTokens,
-          helper.modelName,
-        );
-        suffix = pruneLinesFromBottom(
-          suffix,
-          allowedSuffixTokens,
-          helper.modelName,
-        );
+        prefix = pruneLinesFromTopFast(prefix, allowedPrefixTokens);
+        suffix = pruneLinesFromBottomFast(suffix, allowedSuffixTokens);
       }
       ({
         prompt,
@@ -303,11 +311,19 @@ export function renderPromptWithTokenLimit({
     helper.modelName,
   );
 
+  // [zkdev] Log the final autocomplete prompt for debugging
+  console.log(
+    `[Autocomplete Prompt] model=${helper.modelName} file=${helper.filepath} ` +
+      `prefixLen=${compiledPrefix.length} suffixLen=${compiledSuffix.length} ` +
+      `promptLen=${prompt.length}\n--- PROMPT START ---\n${prompt}\n--- PROMPT END ---`,
+  );
+
   return {
     prompt,
     prefix: compiledPrefix,
     suffix: compiledSuffix,
     completionOptions: {
+      maxTokens: AUTOCOMPLETE_MAX_TOKENS,
       ...completionOptions,
       stop: stopTokens,
     },

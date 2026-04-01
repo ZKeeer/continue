@@ -6,6 +6,7 @@ import {
 } from "../snippets/types";
 import { HelperVars } from "../util/HelperVars";
 
+import { GotoDefinitionCache } from "./GotoDefinitionCache";
 import { ImportDefinitionsService } from "./ImportDefinitionsService";
 import { getSymbolsForSnippet } from "./ranking";
 import { RootPathContextService } from "./root-path-context/RootPathContextService";
@@ -17,10 +18,15 @@ export class ContextRetrievalService {
   private staticContextService: StaticContextService;
 
   constructor(private readonly ide: IDE) {
-    this.importDefinitionsService = new ImportDefinitionsService(this.ide);
+    const gotoDefCache = new GotoDefinitionCache(this.ide);
+    this.importDefinitionsService = new ImportDefinitionsService(
+      this.ide,
+      gotoDefCache,
+    );
     this.rootPathContextService = new RootPathContextService(
       this.importDefinitionsService,
       this.ide,
+      gotoDefCache,
     );
     this.staticContextService = new StaticContextService(this.ide);
   }
@@ -95,5 +101,47 @@ export class ContextRetrievalService {
         e,
       );
     }
+  }
+
+  /**
+   * Get raw import definition data for a file.
+   * Returns import symbol → definition content mappings.
+   * Used by QueueManager warming to populate importQueue.
+   */
+  public getImportDefinitionsForFile(
+    filepath: string,
+  ): {
+    symbolName: string;
+    defFilepath: string;
+    content: string;
+    startLine: number;
+    endLine: number;
+  }[] {
+    const fileInfo = this.importDefinitionsService.get(filepath);
+    if (!fileInfo) {
+      return [];
+    }
+
+    const result: {
+      symbolName: string;
+      defFilepath: string;
+      content: string;
+      startLine: number;
+      endLine: number;
+    }[] = [];
+    for (const [symbolName, rifs] of Object.entries(fileInfo.imports)) {
+      for (const rif of rifs) {
+        if (rif.contents) {
+          result.push({
+            symbolName,
+            defFilepath: rif.filepath,
+            content: rif.contents,
+            startLine: rif.range.start.line,
+            endLine: rif.range.end.line,
+          });
+        }
+      }
+    }
+    return result;
   }
 }

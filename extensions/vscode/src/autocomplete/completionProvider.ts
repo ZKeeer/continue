@@ -1,4 +1,5 @@
 import { CompletionProvider } from "core/autocomplete/CompletionProvider";
+import { QueueManager } from "core/autocomplete/context/QueueManager";
 import { processSingleLineCompletion } from "core/autocomplete/util/processSingleLineCompletion";
 import {
   type AutocompleteInput,
@@ -64,6 +65,7 @@ export class ContinueCompletionProvider
   private nextEditLoggingService: NextEditLoggingService;
   private jumpManager: JumpManager;
   private prefetchQueue: PrefetchQueue;
+  public readonly queueManager: QueueManager;
 
   public recentlyVisitedRanges: RecentlyVisitedRangesService;
   public recentlyEditedTracker: RecentlyEditedTracker;
@@ -86,7 +88,11 @@ export class ContinueCompletionProvider
     usingFullFileDiff: boolean,
   ) {
     this.usingFullFileDiff = usingFullFileDiff;
-    this.recentlyEditedTracker = new RecentlyEditedTracker(ide.ideUtils);
+    this.queueManager = new QueueManager();
+    this.recentlyEditedTracker = new RecentlyEditedTracker(
+      ide.ideUtils,
+      this.queueManager,
+    );
 
     async function getAutocompleteModel() {
       const { config } = await configHandler.loadConfig();
@@ -102,6 +108,7 @@ export class ContinueCompletionProvider
       getAutocompleteModel,
       this.onError.bind(this),
       getDefinitionsFromLsp,
+      this.queueManager,
     );
 
     // Logging service must be created first.
@@ -119,10 +126,56 @@ export class ContinueCompletionProvider
     this.prefetchQueue = PrefetchQueue.getInstance();
     this.prefetchQueue.initialize(this.usingFullFileDiff);
 
-    this.recentlyVisitedRanges = new RecentlyVisitedRangesService(ide);
+    this.recentlyVisitedRanges = new RecentlyVisitedRangesService(
+      ide,
+      this.queueManager,
+    );
+
+    // Phase 2: Wire onDidChangeActiveTextEditor for opened files + warming
+    this.wireActiveEditorEvents();
   }
 
   _lastShownCompletion: AutocompleteOutcome | NextEditOutcome | undefined;
+
+  /**
+   * Wire onDidChangeActiveTextEditor to push opened file snippets
+   * and mark core-ready state in the QueueManager.
+   */
+  private wireActiveEditorEvents(): void {
+    vscode.window.onDidChangeActiveTextEditor((editor) => {
+      if (!editor) {
+        return;
+      }
+      const filepath = editor.document.uri.toString();
+
+      // Skip non-file URIs (output panels, etc.)
+      if (editor.document.uri.scheme !== "file") {
+        return;
+      }
+
+      // Extract file header (first 30 lines) + cursor vicinity as opened-file snippet
+      const lineCount = editor.document.lineCount;
+      const headerEnd = Math.min(30, lineCount);
+      const headerContent = editor.document.getText(
+        new vscode.Range(0, 0, headerEnd, 0),
+      );
+      this.queueManager.pushOpenedFile(filepath, headerContent, 0, headerEnd);
+
+      // Mark core-ready (sync queues available for this file)
+      this.queueManager.markCoreReady(filepath);
+
+      // Start async import warming (non-blocking)
+      const controller = this.queueManager.startWarming(filepath);
+      this.completionProvider
+        .warmFile(filepath, controller.signal)
+        .catch(() => {});
+    });
+
+    // Also wire tab close to remove opened file entries
+    vscode.workspace.onDidCloseTextDocument((document) => {
+      this.queueManager.removeOpenedFile(document.uri.toString());
+    });
+  }
 
   private async getRerankModel() {
     const { config } = await this.configHandler.loadConfig();
@@ -333,7 +386,7 @@ export class ContinueCompletionProvider
       let chainExists = this.nextEditProvider.chainExists();
       const processedCount = this.prefetchQueue.processedCount;
       const unprocessedCount = this.prefetchQueue.unprocessedCount;
-      // console.debug("isJumping:", isJumping, "/ chainExists:", chainExists);
+      console.debug("isJumping:", isJumping, "/ chainExists:", chainExists);
       this.prefetchQueue.peekThreeProcessed();
 
       let resetChainInFullFileDiff = false;
@@ -351,7 +404,7 @@ export class ContinueCompletionProvider
 
       if (isJumping && chainExists) {
         // Case 2: Jumping (chain exists, jump was taken)
-        // console.debug("trigger reason: jumping");
+        console.debug("trigger reason: jumping");
 
         // Reset jump state.
         this.jumpManager.setJumpInProgress(false);
@@ -380,7 +433,7 @@ export class ContinueCompletionProvider
         }
       } else if (chainExists) {
         // Case 3: Accepting next edit outcome (chain exists, jump is not taken).
-        // console.debug("trigger reason: accepting");
+        console.debug("trigger reason: accepting");
 
         // Try suggesting jump for each location.
         let isJumpSuggested = false;
@@ -428,9 +481,9 @@ export class ContinueCompletionProvider
         }
 
         if (!isJumpSuggested) {
-          // console.debug(
-          //   "No suitable jump location found after trying all positions",
-          // );
+          console.debug(
+            "No suitable jump location found after trying all positions",
+          );
           this.nextEditProvider.deleteChain();
           return undefined;
         }
@@ -642,7 +695,7 @@ export class ContinueCompletionProvider
 
       if (isFim) {
         if (!fimText) {
-          // console.debug("deleteChain from completionProvider.ts: !fimText");
+          console.debug("deleteChain from completionProvider.ts: !fimText");
           this.nextEditProvider.deleteChain();
           return undefined;
         }
@@ -679,9 +732,9 @@ export class ContinueCompletionProvider
         // Only time we ever reach this point would be after the jump was taken, or if its after the very first repsonse.
         // In case of jump, this is impossible, as the JumpManager wouldn't have suggested a jump here in the first place.
         // In case of initial response, we suggested a jump.
-        // console.debug(
-        //   "deleteChain from completionProvider.ts: diffLines.length === 0",
-        // );
+        console.debug(
+          "deleteChain from completionProvider.ts: diffLines.length === 0",
+        );
         NextEditProvider.getInstance().deleteChain();
       }
 
@@ -718,10 +771,10 @@ export class ContinueCompletionProvider
     if (selectedCompletionInfo) {
       const { text, range } = selectedCompletionInfo;
       if (!outcome.completion.startsWith(text)) {
-        // console.debug(
-        //   `Won't display completion because text doesn't match: ${text}, ${outcome.completion}`,
-        //   range,
-        // );
+        console.debug(
+          `Won't display completion because text doesn't match: ${text}, ${outcome.completion}`,
+          range,
+        );
         return false;
       }
     }

@@ -123,9 +123,10 @@ data class ParameterInformation(
 
 data class DocumentSymbol(
     val name: String,
-    val kind: String,
+    val kind: Int,                             // LSP SymbolKind numeric value (matches core/index.d.ts)
     val range: Range,
-    val selectionRange: Range
+    val selectionRange: Range,
+    val children: List<DocumentSymbol>? = null // hierarchical structure, mirrors core DocumentSymbol
 )
 
 data class ControlPlaneSessionInfo(
@@ -166,6 +167,8 @@ interface IDE {
 
     suspend fun getClipboardContent(): Map<String, String>
 
+    suspend fun isTelemetryEnabled(): Boolean
+
     suspend fun isWorkspaceRemote(): Boolean
 
     suspend fun getUniqueId(): String
@@ -186,8 +189,6 @@ interface IDE {
     suspend fun fileExists(filepath: String): Boolean
 
     suspend fun writeFile(path: String, contents: String)
-
-    suspend fun removeFile(path: String)
 
     suspend fun showVirtualFile(title: String, contents: String)
 
@@ -308,11 +309,6 @@ data class StreamDiffLinesPayload(
     val includeRulesInSystemMessage: Boolean,
     val fileUri: String?,
     val isApply: Boolean
-)
-
-data class GetDiffLinesPayload(
-    val oldContent: String,
-    val newContent: String,
 )
 
 data class AcceptOrRejectDiffPayload(

@@ -1,4 +1,7 @@
-import { countTokens, pruneStringFromBottom } from "../../llm/countTokens";
+import {
+  estimateTokensFast,
+  pruneLinesFromBottomFast,
+} from "../../llm/countTokens";
 import {
   AutocompleteCodeSnippet,
   AutocompleteSnippet,
@@ -10,11 +13,11 @@ let logMin: number;
 let logMax: number;
 
 const numFilesConsidered = 10;
-const defaultNumFilesUsed = 5;
-const recencyWeight = 0.6;
-const sizeWeight = 0.4;
+const defaultNumFilesUsed = 7;
+const recencyWeight = 0.7;
+const sizeWeight = 0.3;
 const minSize = 10;
-const minTokensInSnippet = 125;
+const minTokensInSnippet = 200;
 
 // Fits opened-file snippets into the remaining amount of prompt tokens
 export function formatOpenedFilesContext(
@@ -48,9 +51,8 @@ export function formatOpenedFilesContext(
   );
 
   for (let i = 0; i < recentlyOpenedFilesSnippets.length; i++) {
-    const snippetTokens = countTokens(
+    const snippetTokens = estimateTokensFast(
       recentlyOpenedFilesSnippets[i].content,
-      helper.modelName,
     );
     if (totalTokens + snippetTokens < remainingTokenCount - TOKEN_BUFFER) {
       totalTokens += snippetTokens;
@@ -157,20 +159,16 @@ function trimSnippetForContext(
   maxTokens: number,
   modelName: string,
 ): { newSnippet: AutocompleteCodeSnippet; newTokens: number } {
-  let numTokensInSnippet = countTokens(snippet.content, modelName);
+  let numTokensInSnippet = estimateTokensFast(snippet.content);
   if (numTokensInSnippet <= maxTokens) {
     return { newSnippet: snippet, newTokens: numTokensInSnippet };
   }
 
-  let trimmedCode = pruneStringFromBottom(
-    modelName,
-    maxTokens,
-    snippet.content,
-  );
+  let trimmedCode = pruneLinesFromBottomFast(snippet.content, maxTokens);
 
   return {
     newSnippet: { ...snippet, content: trimmedCode },
-    newTokens: countTokens(trimmedCode, modelName),
+    newTokens: estimateTokensFast(trimmedCode),
   };
 }
 
@@ -179,5 +177,6 @@ export {
   getRecencyAndSizeScore,
   rankByScore,
   setLogStats,
-  trimSnippetForContext,
+  trimSnippetForContext
 };
+

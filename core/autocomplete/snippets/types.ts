@@ -13,6 +13,9 @@ interface BaseAutocompleteSnippet {
 export interface AutocompleteCodeSnippet extends BaseAutocompleteSnippet {
   filepath: string;
   type: AutocompleteSnippetType.Code;
+  // [zkdev] Optional line range metadata for overlap-aware dedup
+  startLine?: number;
+  endLine?: number;
 }
 
 export interface AutocompleteDiffSnippet extends BaseAutocompleteSnippet {

@@ -44,10 +44,13 @@ import { VsCodeIde } from "../VsCodeIde";
 import { ConfigYamlDocumentLinkProvider } from "./ConfigYamlDocumentLinkProvider";
 import { VsCodeMessenger } from "./VsCodeMessenger";
 
+import { getAst } from "core/autocomplete/util/ast";
 import { modelSupportsNextEdit } from "core/llm/autodetect";
 import { NEXT_EDIT_MODELS } from "core/llm/constants";
+import { DocumentHistoryTracker } from "core/nextEdit/DocumentHistoryTracker";
 import { NextEditProvider } from "core/nextEdit/NextEditProvider";
 import { isNextEditTest } from "core/nextEdit/utils";
+import { localPathOrUriToPath } from "core/util/pathToUri";
 import { JumpManager } from "../activation/JumpManager";
 import setupNextEditWindowManager, {
   NextEditWindowManager,
@@ -58,11 +61,7 @@ import {
 } from "../activation/SelectionChangeManager";
 import { GhostTextAcceptanceTracker } from "../autocomplete/GhostTextAcceptanceTracker";
 import { getDefinitionsFromLsp } from "../autocomplete/lsp";
-import {
-  clearDocumentContentCache,
-  handleTextDocumentChange,
-  initDocumentContentCache,
-} from "../util/editLoggingUtils";
+import { handleTextDocumentChange } from "../util/editLoggingUtils";
 import type { VsCodeWebviewProtocol } from "../webviewProtocol";
 
 export class VsCodeExtension {
@@ -111,8 +110,9 @@ export class VsCodeExtension {
     // Use smart defaults.
     let nextEditEnabled = vscodeConfig.get<boolean>("enableNextEdit");
     if (nextEditEnabled === undefined) {
-      // First time - set smart default.
-      nextEditEnabled = modelSupportsNext ?? false;
+      // [zkdev] Default to autocomplete mode. NextEdit requires explicit opt-in
+      // via settings "continue.enableNextEdit: true".
+      nextEditEnabled = false;
       await vscodeConfig.update(
         "enableNextEdit",
         nextEditEnabled,
@@ -480,16 +480,6 @@ export class VsCodeExtension {
       });
     }
 
-    // Initialize document content cache for tracking pre-edit content
-    vscode.workspace.onDidOpenTextDocument((document) => {
-      initDocumentContentCache(document);
-    });
-
-    // Initialize cache for all currently open documents
-    for (const document of vscode.workspace.textDocuments) {
-      initDocumentContentCache(document);
-    }
-
     vscode.workspace.onDidChangeTextDocument(async (event) => {
       if (event.contentChanges.length > 0) {
         selectionManager.documentChanged();
@@ -519,7 +509,6 @@ export class VsCodeExtension {
     });
 
     vscode.workspace.onDidCloseTextDocument(async (event) => {
-      clearDocumentContentCache(event.uri.toString());
       this.core.invoke("files/closed", {
         uris: [event.uri.toString()],
       });
@@ -546,17 +535,16 @@ export class VsCodeExtension {
       });
     });
 
-    // TODO merge this and re-enable https://github.com/continuedev/continue/pull/8364
-    // vscode.workspace.onDidOpenTextDocument(async (event) => {
-    //   const ast = await getAst(event.fileName, event.getText());
-    //   if (ast) {
-    //     DocumentHistoryTracker.getInstance().addDocument(
-    //       localPathOrUriToPath(event.fileName),
-    //       event.getText(),
-    //       ast,
-    //     );
-    //   }
-    // });
+    vscode.workspace.onDidOpenTextDocument(async (event) => {
+      const ast = await getAst(event.fileName, event.getText());
+      if (ast) {
+        DocumentHistoryTracker.getInstance().addDocument(
+          localPathOrUriToPath(event.fileName),
+          event.getText(),
+          ast,
+        );
+      }
+    });
 
     // When GitHub sign-in status changes, reload config
     vscode.authentication.onDidChangeSessions(async (e) => {

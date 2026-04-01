@@ -5,17 +5,18 @@ import Parser from "web-tree-sitter";
 
 import { IDE } from "../../..";
 import {
-  getFullLanguageName,
-  getQueryForFile,
-  IGNORE_PATH_PATTERNS,
-  LanguageName,
+    getFullLanguageName,
+    getQueryForFile,
+    IGNORE_PATH_PATTERNS,
+    LanguageName,
 } from "../../../util/treeSitter";
 import {
-  AutocompleteCodeSnippet,
-  AutocompleteSnippetType,
+    AutocompleteCodeSnippet,
+    AutocompleteSnippetType,
 } from "../../snippets/types";
 import { AutocompleteSnippetDeprecated } from "../../types";
 import { AstPath } from "../../util/ast";
+import { GotoDefinitionCache } from "../GotoDefinitionCache";
 import { ImportDefinitionsService } from "../ImportDefinitionsService";
 
 // function getSyntaxTreeString(
@@ -41,6 +42,7 @@ export class RootPathContextService {
   constructor(
     private readonly importDefinitionsService: ImportDefinitionsService,
     private readonly ide: IDE,
+    private readonly gotoDefCache?: GotoDefinitionCache,
   ) {}
 
   private static getNodeId(node: Parser.SyntaxNode): string {
@@ -126,13 +128,21 @@ export class RootPathContextService {
     endPosition: Parser.Point,
     language: LanguageName,
   ): Promise<AutocompleteSnippetDeprecated[]> {
-    const definitions = await this.ide.gotoDefinition({
+    // [zkdev] Added 150ms timeout + cached gotoDefinition to avoid repeated LSP calls
+    const location = {
       filepath,
       position: {
         line: endPosition.row,
         character: endPosition.column,
       },
-    });
+    };
+    const gotoFn = this.gotoDefCache
+      ? this.gotoDefCache.gotoDefinition(location)
+      : this.ide.gotoDefinition(location);
+    const definitions = await Promise.race([
+      gotoFn,
+      new Promise<any[]>((resolve) => setTimeout(() => resolve([]), 150)),
+    ]);
     const newSnippets = await Promise.all(
       definitions
         .filter((definition) => {
