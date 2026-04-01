@@ -1,46 +1,46 @@
 import {
-    ChatMessage,
-    ModelCapability,
-    ModelDescription,
-    TemplateType,
+  ChatMessage,
+  ModelCapability,
+  ModelDescription,
+  TemplateType,
 } from "../index.js";
 import { NEXT_EDIT_MODELS } from "./constants.js";
 
 import {
-    anthropicTemplateMessages,
-    chatmlTemplateMessages,
-    codeLlama70bTemplateMessages,
-    codestralTemplateMessages,
-    deepseekTemplateMessages,
-    gemmaTemplateMessage,
-    graniteTemplateMessages,
-    llama2TemplateMessages,
-    llama3TemplateMessages,
-    llavaTemplateMessages,
-    neuralChatTemplateMessages,
-    openchatTemplateMessages,
-    phi2TemplateMessages,
-    phindTemplateMessages,
-    templateAlpacaMessages,
-    xWinCoderTemplateMessages,
-    zephyrTemplateMessages,
+  anthropicTemplateMessages,
+  chatmlTemplateMessages,
+  codeLlama70bTemplateMessages,
+  codestralTemplateMessages,
+  deepseekTemplateMessages,
+  gemmaTemplateMessage,
+  graniteTemplateMessages,
+  llama2TemplateMessages,
+  llama3TemplateMessages,
+  llavaTemplateMessages,
+  neuralChatTemplateMessages,
+  openchatTemplateMessages,
+  phi2TemplateMessages,
+  phindTemplateMessages,
+  templateAlpacaMessages,
+  xWinCoderTemplateMessages,
+  zephyrTemplateMessages,
 } from "./templates/chat.js";
 import {
-    alpacaEditPrompt,
-    claudeEditPrompt,
-    codeLlama70bEditPrompt,
-    deepseekEditPrompt,
-    gemmaEditPrompt,
-    gptEditPrompt,
-    llama3EditPrompt,
-    mistralEditPrompt,
-    neuralChatEditPrompt,
-    openchatEditPrompt,
-    osModelsEditPrompt,
-    phindEditPrompt,
-    simplifiedEditPrompt,
-    xWinCoderEditPrompt,
-    zephyrEditPrompt,
+  alpacaEditPrompt,
+  claudeEditPrompt,
+  codeLlama70bEditPrompt,
+  deepseekEditPrompt,
+  gemmaEditPrompt,
+  gptEditPrompt,
+  llama3EditPrompt,
+  mistralEditPrompt,
+  neuralChatEditPrompt,
+  openchatEditPrompt,
+  osModelsEditPrompt,
+  phindEditPrompt,
+  simplifiedEditPrompt,
+  xWinCoderEditPrompt,
+  zephyrEditPrompt,
 } from "./templates/edit.js";
 
 const PROVIDER_HANDLES_TEMPLATING: string[] = [
@@ -228,9 +228,10 @@ function modelSupportsReasoning(
   }
 
   // [zkdev] P2: Check generic FIM-capable models
+  const lower = model.model.toLowerCase();
   if (
-    MODEL_SUPPORTS_GENERIC_NEXT_EDIT.some(
-      (modelName) => lower.includes(modelName),
+    MODEL_SUPPORTS_GENERIC_NEXT_EDIT.some((modelName) =>
+      lower.includes(modelName),
     )
   ) {
     return true;
@@ -298,9 +299,7 @@ const MODEL_SUPPORTS_NEXT_EDIT: string[] = [
 
 // [zkdev] P2: Models that support NextEdit via the generic FIM provider
 // Narrowed to verified models only — "qwen" was too broad (matched entire brand)
-const MODEL_SUPPORTS_GENERIC_NEXT_EDIT: string[] = [
-  "qwen3-coder",
-];
+const MODEL_SUPPORTS_GENERIC_NEXT_EDIT: string[] = ["qwen3-coder"];
 
 function modelSupportsNextEdit(
   capabilities: ModelCapability | undefined,
@@ -540,12 +539,11 @@ function autodetectPromptTemplates(
 }
 
 export {
-    autodetectPromptTemplates,
-    autodetectTemplateFunction,
-    autodetectTemplateType,
-    llmCanGenerateInParallel,
-    modelSupportsImages,
-    modelSupportsNextEdit,
-    modelSupportsReasoning
+  autodetectPromptTemplates,
+  autodetectTemplateFunction,
+  autodetectTemplateType,
+  llmCanGenerateInParallel,
+  modelSupportsImages,
+  modelSupportsNextEdit,
+  modelSupportsReasoning,
 };
-
