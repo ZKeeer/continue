@@ -311,6 +311,11 @@ data class StreamDiffLinesPayload(
     val isApply: Boolean
 )
 
+data class GetDiffLinesPayload(
+    val oldContent: String,
+    val newContent: String
+)
+
 data class AcceptOrRejectDiffPayload(
     val filepath: String? = null,
     val streamId: String? = null

@@ -20,5 +20,11 @@
     // Disabled for now since it's causing too many errors
   },
   "include": ["src", "../src/util/messenger.ts"],
+  "exclude": [
+    "src/**/*.test.ts",
+    "src/**/*.test.tsx",
+    "src/**/*.spec.ts",
+    "src/**/*.spec.tsx"
+  ],
   "references": [{ "path": "./tsconfig.node.json" }]
 }
