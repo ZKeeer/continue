@@ -318,6 +318,25 @@ export class CompletionProvider {
         );
       }
 
+      // [zkdev] Synthesize visitedRange from cursor position (compensates for IntelliJ
+      // not sending selection events). Push ±15 lines around cursor as "visited".
+      if (this.queueManager) {
+        const cursorLine = input.pos.line;
+        const visitStart = Math.max(0, cursorLine - 15);
+        const visitEnd = Math.min(helper.fileLines.length, cursorLine + 16);
+        const visitContent = helper.fileLines
+          .slice(visitStart, visitEnd)
+          .join("\n");
+        if (visitContent.trim().length > 0) {
+          this.queueManager.pushVisited(
+            input.filepath,
+            visitContent,
+            visitStart,
+            visitEnd,
+          );
+        }
+      }
+
       if (await shouldPrefilter(helper, this.ide)) {
         return undefined;
       }
