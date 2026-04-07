@@ -375,6 +375,31 @@ export class CompletionProvider {
           getDefinitionsFromLsp: this.getDefinitionsFromLsp,
           contextRetrievalService: this.contextRetrievalService,
         });
+
+        // [zkdev] Phase 1.3: Backfill QueueManager from legacy results so next request uses fast path
+        if (this.queueManager && !this.queueManager.isReady(input.filepath)) {
+          for (const s of snippetPayload.recentlyOpenedFileSnippets ?? []) {
+            this.queueManager.pushOpenedFile(
+              s.filepath,
+              s.content,
+              s.startLine ?? 0,
+              s.endLine ?? 0,
+            );
+          }
+          for (const s of snippetPayload.importDefinitionSnippets ?? []) {
+            this.queueManager.pushImportDef(
+              s.filepath,
+              s.content,
+              s.startLine ?? 0,
+              s.endLine ?? 0,
+            );
+          }
+          this.queueManager.markCoreReady(input.filepath);
+          this.queueManager.markFullReady(input.filepath);
+          console.log(
+            `[QueueManager Backfill] Populated from legacy path for ${input.filepath}`,
+          );
+        }
       }
 
       // [zkdev] Step 1+2: Inject scope summary (class method signatures + call target defs)

@@ -229,8 +229,12 @@ export class HelperVars {
     modelName: string,
     ide: IDE,
   ): Promise<HelperVars> {
+    const t_create = Date.now();
     const instance = new HelperVars(input, options, modelName, ide);
     await instance.init();
+    console.log(
+      `[HelperVars] create() total=${Date.now() - t_create}ms (includes constructor + init)`,
+    );
     return instance;
   }
 

@@ -3,6 +3,7 @@ import * as URI from "uri-js";
 import { v4 as uuidv4 } from "uuid";
 
 import { CompletionProvider } from "./autocomplete/CompletionProvider";
+import { QueueManager } from "./autocomplete/context/QueueManager";
 import {
   openedFilesLruCache,
   prevFilepaths,
@@ -92,6 +93,7 @@ export class Core {
   configHandler: ConfigHandler;
   codeBaseIndexer: CodebaseIndexer;
   completionProvider: CompletionProvider;
+  private queueManager: QueueManager;
   nextEditProvider: NextEditProvider;
   private docsService: DocsService;
   private globalContext = new GlobalContext();
@@ -251,12 +253,16 @@ export class Core {
         }
         return config.selectedModelByRole.autocomplete ?? undefined;
       };
+      // [zkdev] Phase 1: Create QueueManager for PyCharm/IntelliJ autocomplete fast path.
+      // Events (files/opened, files/closed) are wired below to populate queues.
+      this.queueManager = new QueueManager();
       this.completionProvider = new CompletionProvider(
         this.configHandler,
         ide,
         getLlm,
         (e) => {},
         (..._) => Promise.resolve([]),
+        this.queueManager,
       );
 
       const codebaseRulesCache = CodebaseRulesCache.getInstance();
@@ -990,6 +996,10 @@ export class Core {
       }
 
       if (data.uris) {
+        // [zkdev] Phase 1.2: Remove closed files from QueueManager
+        for (const uri of data.uris) {
+          this.queueManager.removeOpenedFile(uri);
+        }
         this.messenger.send("didCloseFiles", {
           uris: data.uris,
         });
@@ -1007,6 +1017,32 @@ export class Core {
                 openedFilesLruCache.delete(filepath);
               }
               openedFilesLruCache.set(filepath, filepath);
+
+              // [zkdev] Phase 1.2: Push opened file snippet + warm imports for QueueManager
+              try {
+                const content = await this.ide.readFile(filepath);
+                if (content) {
+                  const lines = content.split("\n");
+                  const headerEnd = Math.min(30, lines.length);
+                  const headerContent = lines.slice(0, headerEnd).join("\n");
+                  this.queueManager.pushOpenedFile(
+                    filepath,
+                    headerContent,
+                    0,
+                    headerEnd,
+                  );
+                }
+                this.queueManager.markCoreReady(filepath);
+                // Non-blocking import warming
+                const controller = this.queueManager.startWarming(filepath);
+                this.completionProvider
+                  .warmFile(filepath, controller.signal)
+                  .catch(() => {});
+              } catch (e) {
+                Logger.error(
+                  `files/opened: QueueManager wiring failed for ${filepath}`,
+                );
+              }
             }
           } catch (e) {
             Logger.error(
