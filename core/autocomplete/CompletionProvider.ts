@@ -280,6 +280,7 @@ export class CompletionProvider {
         options.template = llm.promptTemplates.autocomplete as string;
       }
 
+      const beforeCreate = Date.now();
       const helper = await HelperVars.create(
         input,
         options,
@@ -287,6 +288,35 @@ export class CompletionProvider {
         this.ide,
       );
       const afterHelperVars = Date.now();
+      // [zkdev] Diagnostic: isolate gap between afterDebounce, beforeCreate, and afterHelperVars
+      console.log(
+        `[Autocomplete HelperVarsGap] completionId=${input.completionId} ` +
+          `logOverheadMs=${beforeCreate - afterDebounce} ` +
+          `createExternalMs=${afterHelperVars - beforeCreate} ` +
+          `helperVarsMs=${afterHelperVars - afterDebounce}`,
+      );
+
+      // [zkdev] Proactive warm: if QueueManager exists but file not yet warmed,
+      // push current file header from already-read fileLines (zero extra IPC).
+      // This handles the case where files/opened event hasn't fired yet
+      // (e.g., file was already open when Core started).
+      if (this.queueManager && !this.queueManager.isReady(input.filepath)) {
+        const headerEnd = Math.min(30, helper.fileLines.length);
+        const headerContent = helper.fileLines.slice(0, headerEnd).join("\n");
+        this.queueManager.pushOpenedFile(
+          input.filepath,
+          headerContent,
+          0,
+          headerEnd,
+        );
+        this.queueManager.markCoreReady(input.filepath);
+        // Non-blocking import warming for subsequent requests
+        const controller = this.queueManager.startWarming(input.filepath);
+        this.warmFile(input.filepath, controller.signal).catch(() => {});
+        console.log(
+          `[QueueManager ProactiveWarm] Warmed ${input.filepath} from autocomplete request`,
+        );
+      }
 
       if (await shouldPrefilter(helper, this.ide)) {
         return undefined;
