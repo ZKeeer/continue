@@ -1,5 +1,16 @@
 import * as URI from "uri-js";
 
+/**
+ * Normalizes non-standard URI schemes from IDE plugins (e.g. JetBrains mock:///)
+ * to file:// so that downstream findUriInDirs / getFileName work correctly.
+ */
+export function normalizeUriScheme(uri: string): string {
+  if (uri.startsWith("mock:///")) {
+    return "file:///" + uri.slice("mock:///".length);
+  }
+  return uri;
+}
+
 /** Converts any OS path to cleaned up URI path segment format with no leading/trailing slashes
    e.g. \path\to\folder\ -> path/to/folder
         \this\is\afile.ts -> this/is/afile.ts

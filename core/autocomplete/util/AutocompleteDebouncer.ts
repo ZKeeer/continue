@@ -15,7 +15,8 @@ export class AutocompleteDebouncer {
 
   private getAdaptiveDelay(configDelay: number): number {
     const now = Date.now();
-    const interval = this.lastKeystrokeTime > 0 ? now - this.lastKeystrokeTime : Infinity;
+    const interval =
+      this.lastKeystrokeTime > 0 ? now - this.lastKeystrokeTime : Infinity;
     this.lastKeystrokeTime = now;
 
     // Track recent intervals (sliding window)
@@ -35,8 +36,8 @@ export class AutocompleteDebouncer {
       // Normal typing
       return Math.min(configDelay, 80);
     } else {
-      // Paused → respond quickly
-      return 30;
+      // Paused → give a window to see if more keystrokes follow
+      return Math.min(120, configDelay);
     }
   }
 

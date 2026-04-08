@@ -17,8 +17,8 @@ import { DataLogger } from "./data/log";
 import { CodebaseIndexer } from "./indexing/CodebaseIndexer";
 import DocsService from "./indexing/docs/DocsService";
 import { countTokens } from "./llm/countTokens";
-import Lemonade from "./llm/llms/Lemonade";
 import { fetchModels } from "./llm/fetchModels";
+import Lemonade from "./llm/llms/Lemonade";
 import Ollama from "./llm/llms/Ollama";
 import { EditAggregator } from "./nextEdit/context/aggregateEdits";
 import { createNewPromptFileV2 } from "./promptFiles/createNewPromptFile";
@@ -36,6 +36,7 @@ import {
 } from "./util/processTerminalStates";
 import { getSymbolsForManyFiles } from "./util/treeSitter";
 import { TTS } from "./util/tts";
+import { normalizeUriScheme } from "./util/uri";
 
 import {
   CompleteOnboardingPayload,
@@ -718,6 +719,7 @@ export class Core {
 
     // Autocomplete
     on("autocomplete/complete", async (msg) => {
+      msg.data.filepath = normalizeUriScheme(msg.data.filepath);
       const outcome =
         await this.completionProvider.provideInlineCompletionItems(
           msg.data,
@@ -1012,7 +1014,7 @@ export class Core {
       if (data.uris) {
         // [zkdev] Phase 1.2: Remove closed files from QueueManager
         for (const uri of data.uris) {
-          this.queueManager.removeOpenedFile(uri);
+          this.queueManager.removeOpenedFile(normalizeUriScheme(uri));
         }
         this.messenger.send("didCloseFiles", {
           uris: data.uris,
@@ -1022,7 +1024,8 @@ export class Core {
 
     on("files/opened", async ({ data: { uris } }) => {
       if (uris) {
-        for (const filepath of uris) {
+        for (let filepath of uris) {
+          filepath = normalizeUriScheme(filepath);
           try {
             const ignore = await shouldIgnore(filepath, this.ide);
             if (!ignore) {
@@ -1080,6 +1083,7 @@ export class Core {
       if (data.actions && data.actions.length > 0) {
         for (const action of data.actions) {
           if (action.filepath && action.editText) {
+            action.filepath = normalizeUriScheme(action.filepath);
             const startLine = action.range.start.line;
             const endLine = action.range.end.line;
 
@@ -1152,6 +1156,7 @@ export class Core {
       if (!data.filepath || !data.content) {
         return;
       }
+      data.filepath = normalizeUriScheme(data.filepath);
 
       this.queueManager.pushVisited(
         data.filepath,

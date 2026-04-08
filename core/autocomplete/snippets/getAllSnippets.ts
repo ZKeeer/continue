@@ -1,5 +1,5 @@
 import { IDE } from "../../index";
-import { findUriInDirs } from "../../util/uri";
+import { findUriInDirs, getUriPathBasename } from "../../util/uri";
 import { ContextRetrievalService } from "../context/ContextRetrievalService";
 import { GetLspDefinitionsFunction } from "../types";
 import { HelperVars } from "../util/HelperVars";
@@ -143,6 +143,56 @@ const getDiffSnippets = async (
   });
 };
 
+/**
+ * [zkdev] P2-12: Only get diff for the current file to avoid large repo diff overhead.
+ * Filters cached diffs by matching the current file's relative path or basename
+ * against unified diff headers. Budget-limited to ~800 chars (~200 tokens).
+ */
+const getDiffSnippetsForCurrentFile = async (
+  ide: IDE,
+  filepath: string,
+  workspaceDirs: string[],
+): Promise<AutocompleteDiffSnippet[]> => {
+  const diffs = await getDiffsFromCache(ide);
+  if (diffs.length === 0) {
+    return [];
+  }
+
+  const { relativePathOrBasename } = findUriInDirs(filepath, workspaceDirs);
+  const basename = getUriPathBasename(filepath);
+
+  const currentFileDiffs = diffs.filter((diff) => {
+    return diff.includes(relativePathOrBasename) || diff.includes(basename);
+  });
+
+  if (currentFileDiffs.length === 0) {
+    return [];
+  }
+
+  // ~400 tokens ≈ 1600 chars; truncate on line boundary to avoid partial lines
+  const allLines = currentFileDiffs.join("\n").split("\n");
+  let charCount = 0;
+  const budgetLines: string[] = [];
+  for (const line of allLines) {
+    if (charCount + line.length + 1 > 1600) {
+      break;
+    }
+    budgetLines.push(line);
+    charCount += line.length + 1;
+  }
+
+  if (budgetLines.length === 0) {
+    return [];
+  }
+
+  return [
+    {
+      content: budgetLines.join("\n"),
+      type: AutocompleteSnippetType.Diff,
+    },
+  ];
+};
+
 const getSnippetsFromRecentlyOpenedFiles = async (
   helper: HelperVars,
   ide: IDE,
@@ -232,7 +282,10 @@ export const getAllSnippets = async ({
     IDE_SNIPPETS_ENABLED
       ? racePromise(getIdeSnippets(helper, ide, getDefinitionsFromLsp))
       : [],
-    [], // racePromise(getDiffSnippets(ide)) // temporarily disabled, see https://github.com/continuedev/continue/pull/5882,
+    racePromise(
+      getDiffSnippetsForCurrentFile(ide, helper.filepath, helper.workspaceUris),
+      200,
+    ), // [zkdev] P2-12: current file diff only, 200ms timeout
     racePromise(getClipboardSnippets(ide)),
     racePromise(getSnippetsFromRecentlyOpenedFiles(helper, ide)), // giving this one a little more time to complete
     helper.options.experimental_enableStaticContextualization
@@ -300,7 +353,10 @@ export const getAllSnippetsWithoutRace = async ({
     IDE_SNIPPETS_ENABLED
       ? racePromise(getIdeSnippets(helper, ide, getDefinitionsFromLsp), 200)
       : [],
-    [], // racePromise(getDiffSnippets(ide)) // temporarily disabled, see https://github.com/continuedev/continue/pull/5882,
+    racePromise(
+      getDiffSnippetsForCurrentFile(ide, helper.filepath, helper.workspaceUris),
+      200,
+    ), // [zkdev] P2-12: current file diff only, 200ms timeout
     racePromise(getClipboardSnippets(ide), 200),
     racePromise(getSnippetsFromRecentlyOpenedFiles(helper, ide), 200),
     helper.options.experimental_enableStaticContextualization

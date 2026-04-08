@@ -5,6 +5,7 @@ import { DEFAULT_AUTOCOMPLETE_OPTS } from "../util/parameters.js";
 
 import { shouldCompleteMultiline } from "./classification/shouldCompleteMultiline.js";
 import { ContextRetrievalService } from "./context/ContextRetrievalService.js";
+import { DefinitionCacheService } from "./context/DefinitionCacheService.js";
 import { QueueManager } from "./context/QueueManager.js";
 
 import { isSecurityConcern } from "../indexing/ignore.js";
@@ -14,6 +15,7 @@ import { postprocessCompletion } from "./postprocessing/index.js";
 import { PrefetchService } from "./prediction/PrefetchService.js";
 import { SimilarEditDetector } from "./prediction/SimilarEditDetector.js";
 import { shouldPrefilter } from "./prefiltering/index.js";
+import { SnippetPayload } from "./snippets/getAllSnippets.js";
 import { getAllSnippetsWithoutRace } from "./snippets/index.js";
 import {
   AutocompleteCodeSnippet,
@@ -51,6 +53,7 @@ export class CompletionProvider {
   private contextRetrievalService: ContextRetrievalService;
   private prefetchService = new PrefetchService();
   private similarEditDetector = new SimilarEditDetector();
+  private definitionCacheService: DefinitionCacheService;
 
   constructor(
     private readonly configHandler: ConfigHandler,
@@ -62,6 +65,7 @@ export class CompletionProvider {
   ) {
     this.completionStreamer = new CompletionStreamer(this.onError.bind(this));
     this.contextRetrievalService = new ContextRetrievalService(this.ide);
+    this.definitionCacheService = new DefinitionCacheService(this.ide);
   }
 
   private async _prepareLlm(): Promise<ILLM | undefined> {
@@ -131,6 +135,16 @@ export class CompletionProvider {
 
       if (signal?.aborted) {
         return;
+      }
+
+      // [zkdev] P1-7/8: Warm DefinitionCacheService by scanning file for function defs
+      try {
+        const content = await this.ide.readFile(filepath);
+        if (content && !signal?.aborted) {
+          this.definitionCacheService.warmFile(filepath, content);
+        }
+      } catch {
+        // Non-critical
       }
 
       // Extract import definitions and push to importQueue
@@ -224,6 +238,58 @@ export class CompletionProvider {
     }
 
     return options;
+  }
+
+  /**
+   * Inject project-internal function definitions + scope summary into snippet payload.
+   * Extracted to reduce provideInlineCompletionItems complexity.
+   */
+  private async enrichSnippetPayload(
+    snippetPayload: SnippetPayload,
+    helper: HelperVars,
+    completionId: string,
+  ): Promise<void> {
+    // P1-7/8: Inject project-internal function definition context
+    try {
+      const defSnippets =
+        await this.definitionCacheService.getDefinitionsForContext(
+          helper.fullPrefix,
+          helper.fullSuffix,
+          helper.filepath,
+          helper.workspaceUris,
+          300,
+        );
+      if (defSnippets.length > 0) {
+        snippetPayload.importDefinitionSnippets = [
+          ...snippetPayload.importDefinitionSnippets,
+          ...defSnippets,
+        ];
+        console.log(
+          `[Autocomplete DefinitionCache] completionId=${completionId} ` +
+            `defs=${defSnippets.length}`,
+        );
+      }
+    } catch (e) {
+      // Non-critical, don't block completion
+    }
+
+    // Inject scope summary (class method signatures + call target defs)
+    const scopeSnippet = helper.getScopeSummarySnippet();
+    if (scopeSnippet) {
+      const scopeCodeSnippet: AutocompleteCodeSnippet = {
+        filepath: scopeSnippet.filepath,
+        content: scopeSnippet.content,
+        type: AutocompleteSnippetType.Code,
+      };
+      snippetPayload.rootPathSnippets = [
+        scopeCodeSnippet,
+        ...snippetPayload.rootPathSnippets,
+      ];
+      console.log(
+        `[Autocomplete ScopeSummary] completionId=${completionId} ` +
+          `contentLen=${scopeSnippet.content.length}`,
+      );
+    }
   }
 
   public async provideInlineCompletionItems(
@@ -451,23 +517,12 @@ export class CompletionProvider {
         }
       }
 
-      // [zkdev] Step 1+2: Inject scope summary (class method signatures + call target defs)
-      const scopeSnippet = helper.getScopeSummarySnippet();
-      if (scopeSnippet) {
-        const scopeCodeSnippet: AutocompleteCodeSnippet = {
-          filepath: scopeSnippet.filepath,
-          content: scopeSnippet.content,
-          type: AutocompleteSnippetType.Code,
-        };
-        snippetPayload.rootPathSnippets = [
-          scopeCodeSnippet,
-          ...snippetPayload.rootPathSnippets,
-        ];
-        console.log(
-          `[Autocomplete ScopeSummary] completionId=${input.completionId} ` +
-            `contentLen=${scopeSnippet.content.length}`,
-        );
-      }
+      // [zkdev] P1-7/8 + scope summary: enrich snippet payload with definitions & scope
+      await this.enrichSnippetPayload(
+        snippetPayload,
+        helper,
+        input.completionId,
+      );
 
       const workspaceDirs = helper.workspaceUris;
       const afterContextCollection = Date.now();
