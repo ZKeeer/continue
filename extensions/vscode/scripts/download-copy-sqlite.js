@@ -54,6 +54,13 @@ async function downloadSqlite(target, targetDir) {
 }
 
 async function installAndCopySqlite(target) {
+  // Skip download if sqlite3 binary already exists (when CONTINUE_DOWNLOAD_BINARY=NOTEXISTS)
+  const sqliteBin = "../../core/node_modules/sqlite3/build/Release/node_sqlite3.node";
+  if (process.env.CONTINUE_DOWNLOAD_BINARY === "NOTEXISTS" && fs.existsSync(sqliteBin)) {
+    console.log(`[info] sqlite3 already exists at ${sqliteBin}, skipping download`);
+    return;
+  }
+
   // Replace the installed with pre-built
   console.log("[info] Downloading pre-built sqlite3 binary");
   rimrafSync("../../core/node_modules/sqlite3/build");
@@ -63,6 +70,16 @@ async function installAndCopySqlite(target) {
 }
 
 async function installAndCopyEsbuild(target) {
+  // Skip download if esbuild directory already has content (when CONTINUE_DOWNLOAD_BINARY=NOTEXISTS)
+  const esbuildDir = "node_modules/@esbuild";
+  if (process.env.CONTINUE_DOWNLOAD_BINARY === "NOTEXISTS" && fs.existsSync(esbuildDir)) {
+    const entries = fs.readdirSync(esbuildDir).filter(e => e !== "esbuild.zip");
+    if (entries.length > 0) {
+      console.log(`[info] esbuild already exists in ${esbuildDir}, skipping download`);
+      return;
+    }
+  }
+
   // Download and unzip esbuild
   console.log("[info] Downloading pre-built esbuild binary");
   rimrafSync("node_modules/@esbuild");

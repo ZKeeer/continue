@@ -17,6 +17,18 @@ const { fork } = require("child_process");
 async function downloadNodeSqlite(target, targetDir) {
   const [currentPlatform, currentArch] = autodetectPlatformAndArch();
 
+  // Skip download if node_sqlite3.node already exists (when CONTINUE_DOWNLOAD_BINARY=NOTEXISTS)
+  const sqliteBin = `${targetDir}/build/Release/node_sqlite3.node`;
+  if (
+    process.env.CONTINUE_DOWNLOAD_BINARY === "NOTEXISTS" &&
+    fs.existsSync(sqliteBin)
+  ) {
+    console.log(
+      `[info] node-sqlite3 already exists at ${sqliteBin}, skipping download`,
+    );
+    return;
+  }
+
   // Download and unzip prebuilt sqlite3 binary for the target
   console.log("[info] Downloading node-sqlite3");
 

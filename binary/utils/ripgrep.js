@@ -83,6 +83,20 @@ async function downloadRipgrep(target, targetDir) {
   }
 
   const platform = target.split("-")[0];
+
+  // Skip download if ripgrep binary already exists (when CONTINUE_DOWNLOAD_BINARY=NOTEXISTS)
+  const binName = platform === "win32" ? "rg.exe" : "rg";
+  const existingBin = path.join(targetDir, binName);
+  if (
+    process.env.CONTINUE_DOWNLOAD_BINARY === "NOTEXISTS" &&
+    fs.existsSync(existingBin)
+  ) {
+    console.log(
+      `[info] Ripgrep already exists at ${existingBin}, skipping download`,
+    );
+    return existingBin;
+  }
+
   const downloadUrl = `${RIPGREP_BASE_URL}/${releaseFile}`;
   const tempDir = path.join(targetDir, "temp");
 

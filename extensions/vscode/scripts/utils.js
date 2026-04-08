@@ -258,6 +258,14 @@ async function copySqliteBinary() {
 }
 
 async function downloadRipgrepBinary(target) {
+  // Skip download if ripgrep binary already exists (when CONTINUE_DOWNLOAD_BINARY=NOTEXISTS)
+  const binName = target.startsWith("win") ? "rg.exe" : "rg";
+  const existingBin = path.join("node_modules/@vscode/ripgrep/bin", binName);
+  if (process.env.CONTINUE_DOWNLOAD_BINARY === "NOTEXISTS" && fs.existsSync(existingBin)) {
+    console.log(`[info] Ripgrep already exists at ${existingBin}, skipping download`);
+    return;
+  }
+
   console.log("[info] Downloading pre-built ripgrep binary");
   rimrafSync("node_modules/@vscode/ripgrep/bin");
   fs.mkdirSync("node_modules/@vscode/ripgrep/bin", { recursive: true });
