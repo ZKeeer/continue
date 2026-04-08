@@ -140,6 +140,25 @@ const qwenCoderMultifileFimTemplate: AutocompleteTemplate = {
   },
 };
 
+// https://www.ibm.com/granite/docs/models/granite#fim
+const granite4FimTemplate: AutocompleteTemplate = {
+  template:
+    "<|fim_prefix|>{{{prefix}}}<|fim_suffix|>{{{suffix}}}<|fim_middle|>",
+  completionOptions: {
+    stop: [
+      "<|endoftext|>",
+      "<|fim_prefix|>",
+      "<|fim_middle|>",
+      "<|fim_suffix|>",
+      "<|fim_pad|>",
+      "<|repo_name|>",
+      "<|file_sep|>",
+      "<|im_start|>",
+      "<|im_end|>",
+    ],
+  },
+};
+
 const seedCoderFimTemplate: AutocompleteTemplate = {
   template:
     "<[fim-prefix]>{{{prefix}}}<[fim-suffix]>{{{suffix}}}<[fim-middle]>",
@@ -509,6 +528,10 @@ export function getTemplateForModel(model: string): AutocompleteTemplate {
 
   if (lowerCaseModel.includes("qwen") && lowerCaseModel.includes("coder")) {
     return qwenCoderMultifileFimTemplate;
+  }
+
+  if (lowerCaseModel.includes("granite") && lowerCaseModel.includes("4")) {
+    return granite4FimTemplate;
   }
 
   if (lowerCaseModel.includes("seed") && lowerCaseModel.includes("coder")) {

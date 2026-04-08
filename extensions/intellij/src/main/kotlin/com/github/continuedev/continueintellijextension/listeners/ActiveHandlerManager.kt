@@ -64,7 +64,7 @@ class ActiveHandlerManager(private val project: Project) : SelectionListener, Ca
         private const val CURSOR_DEBOUNCE_MS = 100L
     }
 
-    private val coroutineScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    private val coroutineScope = CoroutineScope(Dispatchers.Default.limitedParallelism(1) + SupervisorJob())
     private var activeHandler: CursorMovementHandler? = null
     private var isHandlingEvent = false
     private var cursorEventJob: Job? = null

@@ -1,4 +1,5 @@
 import { createAnthropic } from "@ai-sdk/anthropic";
+import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { createDeepSeek } from "@ai-sdk/deepseek";
 import { createOpenAI } from "@ai-sdk/openai";
 import { createXai } from "@ai-sdk/xai";
@@ -32,12 +33,18 @@ type AiSdkProviderCreator = (options: {
 const PROVIDER_MAP: Record<string, AiSdkProviderCreator> = {
   openai: createOpenAI,
   anthropic: createAnthropic,
+  google: createGoogleGenerativeAI,
   xai: createXai,
   deepseek: createDeepSeek,
   openrouter: (options) =>
     createOpenAI({
       ...options,
       baseURL: options.baseURL ?? "https://openrouter.ai/api/v1/",
+    }),
+  clawrouter: (options) =>
+    createOpenAI({
+      ...options,
+      baseURL: options.baseURL ?? "http://localhost:1337/v1/",
     }),
 };
 

@@ -25,7 +25,7 @@ export interface ModelPackage {
   params: {
     model: ILLM["model"];
     templateMessages?: ILLM["templateMessages"];
-    contextLength: ILLM["contextLength"];
+    contextLength?: ILLM["contextLength"];
     stopTokens?: string[];
     promptTemplates?: ILLM["promptTemplates"];
     replace?: [string, string][];
@@ -737,7 +737,7 @@ export const models: { [key: string]: ModelPackage } = {
       contextLength: 8192,
     },
     icon: "meta.png",
-    providerOptions: ["groq", "nebius"],
+    providerOptions: ["nebius"],
     isOpenSource: false,
   },
   llama3170bNemotron: {
@@ -1027,49 +1027,6 @@ export const models: { [key: string]: ModelPackage } = {
     icon: "mistral.png",
     isOpenSource: true,
   },
-  gemini20Flash: {
-    title: "Gemini 2.0 Flash",
-    description:
-      "Google's powerful workhorse model with low latency and enhanced performance.",
-    params: {
-      title: "Gemini 2.0 Flash",
-      model: "gemini-2.0-flash",
-      contextLength: 1_000_000,
-      apiKey: "<API_KEY>",
-    },
-    icon: "gemini.png",
-    providerOptions: ["gemini"],
-    isOpenSource: false,
-  },
-  gemini20FlashLite: {
-    title: "Gemini 2.0 Flash Lite",
-    description:
-      "A more efficient version of Gemini 2.0 Flash optimized for faster responses and lower resource usage.",
-    params: {
-      title: "Gemini 2.0 Flash Lite",
-      model: "gemini-2.0-flash-lite",
-      contextLength: 1_048_576,
-      apiKey: "<API_KEY>",
-    },
-    icon: "gemini.png",
-    providerOptions: ["gemini"],
-    isOpenSource: false,
-  },
-  gemini20FlashImageGeneration: {
-    title: "Gemini 2.0 Flash Image Generation",
-    description:
-      "A version of Gemini 2.0 Flash optimized for image generation capabilities.",
-    params: {
-      title: "Gemini 2.0 Flash Image Generation",
-      model: "gemini-2.0-flash-exp-image-generation",
-      contextLength: 32_768,
-      apiKey: "<API_KEY>",
-    },
-    icon: "gemini.png",
-    providerOptions: ["gemini"],
-    isOpenSource: false,
-  },
-
   gemini25Pro: {
     title: "Gemini 2.5 Pro",
     description:
@@ -1084,14 +1041,14 @@ export const models: { [key: string]: ModelPackage } = {
     providerOptions: ["gemini"],
     isOpenSource: false,
   },
-  gemini3ProPreview: {
-    title: "Gemini 3 Pro",
+  gemini31ProPreview: {
+    title: "Gemini 3.1 Pro",
     description:
-      "Google's latest Pro model with up to 64k output context. Best for complex tasks involving reasoning.",
+      "Google's most capable model with 2M context window. Best for complex tasks involving reasoning.",
     params: {
-      title: "Gemini 3 Pro",
-      model: "gemini-3-pro-preview",
-      contextLength: 1_048_576,
+      title: "Gemini 3.1 Pro",
+      model: "gemini-3.1-pro-preview",
+      contextLength: 2_097_152,
       apiKey: "<API_KEY>",
     },
     icon: "gemini.png",
@@ -2003,20 +1960,6 @@ export const models: { [key: string]: ModelPackage } = {
     icon: "groq.png",
     isOpenSource: true,
   },
-  asksagegemini20Flash: {
-    title: "Gemini 2.0 Flash*",
-    description:
-      "Google's powerful workhorse model with low latency and enhanced performance.",
-    params: {
-      title: "Gemini 2.0 Flash*",
-      model: "google-gemini-20-flash",
-      contextLength: 1_000_000,
-      apiKey: "",
-    },
-    icon: "gemini.png",
-    providerOptions: ["askSage"],
-    isOpenSource: false,
-  },
   asksagegemini25Pro: {
     title: "Gemini 2.5 Pro*",
     description: "Google's Gemini 2.5 Pro model",
@@ -2297,6 +2240,48 @@ export const models: { [key: string]: ModelPackage } = {
     icon: "openai.png",
     isOpenSource: false,
   },
+  gpt5_4Pro: {
+    title: "GPT-5.4 Pro",
+    description:
+      "OpenAI's smartest model with increased compute for more precise responses.",
+    params: {
+      model: "gpt-5.4-pro",
+      contextLength: 1_050_000,
+      completionOptions: { maxTokens: 128_000 },
+      title: "GPT-5.4 Pro",
+    },
+    providerOptions: ["openai"],
+    icon: "openai.png",
+    isOpenSource: false,
+  },
+  gpt5_4: {
+    title: "GPT-5.4",
+    description:
+      "OpenAI's high-intelligence flagship model with 1M context window.",
+    params: {
+      model: "gpt-5.4",
+      contextLength: 1_050_000,
+      completionOptions: { maxTokens: 128_000 },
+      title: "GPT-5.4",
+    },
+    providerOptions: ["openai"],
+    icon: "openai.png",
+    isOpenSource: false,
+  },
+  gpt5_4Mini: {
+    title: "GPT-5.4 Mini",
+    description:
+      "OpenAI's strongest mini model for coding, computer use, and high-volume workloads.",
+    params: {
+      model: "gpt-5.4-mini",
+      contextLength: 400_000,
+      completionOptions: { maxTokens: 128_000 },
+      title: "GPT-5.4 Mini",
+    },
+    providerOptions: ["openai"],
+    icon: "openai.png",
+    isOpenSource: false,
+  },
   codexMini: {
     title: "Codex Mini",
     description:
@@ -2363,11 +2348,24 @@ export const models: { [key: string]: ModelPackage } = {
     isOpenSource: false,
   },
   gemini3FlashPreview: {
-    title: "Gemini 3 Flash Preview",
-    description: "Google's next-generation Flash model with strong reasoning.",
+    title: "Gemini 3 Flash",
+    description: "High-speed thinking model for agentic workflows and coding.",
     params: {
-      title: "Gemini 3 Flash Preview",
+      title: "Gemini 3 Flash",
       model: "gemini-3-flash-preview",
+      contextLength: 1_048_576,
+      apiKey: "<API_KEY>",
+    },
+    icon: "gemini.png",
+    providerOptions: ["gemini"],
+    isOpenSource: false,
+  },
+  gemini31FlashLitePreview: {
+    title: "Gemini 3.1 Flash Lite",
+    description: "Cost-efficient model optimized for high-volume tasks.",
+    params: {
+      title: "Gemini 3.1 Flash Lite",
+      model: "gemini-3.1-flash-lite-preview",
       contextLength: 1_048_576,
       apiKey: "<API_KEY>",
     },
@@ -2480,6 +2478,19 @@ export const models: { [key: string]: ModelPackage } = {
       model: "gemma2-9b-it",
       contextLength: 8000,
     },
+    isOpenSource: true,
+  },
+  gemma4: {
+    title: "Gemma 4",
+    description:
+      "Gemma 4 is a multimodal open model from Google, supporting text, image, tool use, and up to 128k context.",
+    params: {
+      title: "Gemma 4",
+      model: "gemma4",
+      contextLength: 128_000,
+    },
+    icon: "gemini.png",
+    providerOptions: ["ollama"],
     isOpenSource: true,
   },
   phi3mini: {
@@ -2688,6 +2699,109 @@ export const models: { [key: string]: ModelPackage } = {
     providerOptions: ["sambanova"],
     isOpenSource: true,
   },
+  minimaxM27: {
+    title: "MiniMax M2.7",
+    description:
+      "Latest flagship model with enhanced reasoning and coding capabilities. 204K context window.",
+    params: {
+      title: "MiniMax M2.7",
+      model: "MiniMax-M2.7",
+      contextLength: 204_800,
+    },
+    providerOptions: ["minimax"],
+    isOpenSource: false,
+  },
+  minimaxM27Highspeed: {
+    title: "MiniMax M2.7 Highspeed",
+    description:
+      "High-speed version of M2.7 for low-latency scenarios. 204K context window.",
+    params: {
+      title: "MiniMax M2.7 Highspeed",
+      model: "MiniMax-M2.7-highspeed",
+      contextLength: 204_800,
+    },
+    providerOptions: ["minimax"],
+    isOpenSource: false,
+  },
+  minimaxM25: {
+    title: "MiniMax M2.5",
+    description:
+      "Peak performance with ultimate value. Excels at complex reasoning, code generation, and multi-step tasks with a 204K context window.",
+    params: {
+      title: "MiniMax M2.5",
+      model: "MiniMax-M2.5",
+      contextLength: 204_800,
+    },
+    providerOptions: ["minimax"],
+    isOpenSource: false,
+  },
+  minimaxM25Highspeed: {
+    title: "MiniMax M2.5 Highspeed",
+    description:
+      "Same performance as M2.5, faster and more agile for latency-sensitive tasks with a 204K context window.",
+    params: {
+      title: "MiniMax M2.5 Highspeed",
+      model: "MiniMax-M2.5-highspeed",
+      contextLength: 204_800,
+    },
+    providerOptions: ["minimax"],
+    isOpenSource: false,
+  },
+
+  // ClawRouter Models
+  clawrouterAuto: {
+    title: "ClawRouter Auto",
+    description:
+      "Automatic model selection - routes to the cheapest capable model based on prompt complexity (78-96% cost savings)",
+    params: {
+      title: "ClawRouter Auto",
+      model: "blockrun/auto",
+      contextLength: 128_000,
+    },
+    icon: "clawrouter.png",
+    providerOptions: ["clawrouter"],
+    isOpenSource: true,
+  },
+  clawrouterFree: {
+    title: "ClawRouter Free",
+    description:
+      "Free tier model routing - automatically selects from available free models",
+    params: {
+      title: "ClawRouter Free",
+      model: "blockrun/free",
+      contextLength: 32_000,
+    },
+    icon: "clawrouter.png",
+    providerOptions: ["clawrouter"],
+    isOpenSource: true,
+  },
+  clawrouterEco: {
+    title: "ClawRouter Eco",
+    description:
+      "Economy tier model routing - balances cost and capability for everyday tasks",
+    params: {
+      title: "ClawRouter Eco",
+      model: "blockrun/eco",
+      contextLength: 64_000,
+    },
+    icon: "clawrouter.png",
+    providerOptions: ["clawrouter"],
+    isOpenSource: true,
+  },
+  clawrouterPremium: {
+    title: "ClawRouter Premium",
+    description:
+      "Premium tier - routes to best quality models (Claude Opus, GPT-5.4 Pro) for mission-critical tasks",
+    params: {
+      title: "ClawRouter Premium",
+      model: "blockrun/premium",
+      contextLength: 200_000,
+    },
+    icon: "clawrouter.png",
+    providerOptions: ["clawrouter"],
+    isOpenSource: true,
+  },
+
   AUTODETECT: {
     title: "Autodetect",
     description:
@@ -3059,20 +3173,6 @@ export const models: { [key: string]: ModelPackage } = {
       model: "gemini-2.5-flash-lite",
       contextLength: 8_000,
       title: "Gemini 2.5 Flash Lite",
-      apiKey: "",
-    },
-    providerOptions: ["cometapi"],
-    icon: "cometapi.png",
-    isOpenSource: false,
-  },
-  cometapiGemini20Flash: {
-    title: "Gemini 2.0 Flash",
-    description:
-      "Gemini 2.0 Flash via CometAPI - Google's powerful workhorse model with low latency.",
-    params: {
-      model: "gemini-2.0-flash",
-      contextLength: 32_000,
-      title: "Gemini 2.0 Flash",
       apiKey: "",
     },
     providerOptions: ["cometapi"],

@@ -19,7 +19,7 @@ class DocumentChangeTracker(private val project: Project) : DocumentListener {
         private val LOG = Logger.getInstance(DocumentChangeTracker::class.java.simpleName)
     }
 
-    private val coroutineScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    private val coroutineScope = CoroutineScope(Dispatchers.Default.limitedParallelism(1) + SupervisorJob())
     private var typingHandler: TypingSessionHandler? = null
     private var typingSessionTimer: Job? = null
 

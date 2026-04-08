@@ -3,7 +3,6 @@ import { ModelProviderTags } from "../../../components/modelSelection/utils";
 import { completionParamsInputs } from "./completionParamsInputs";
 import type { ModelPackage } from "./models";
 import { models } from "./models";
-import { getOpenRouterModelsList } from "./openRouterModel";
 
 export interface InputDescriptor {
   inputType: HTMLInputTypeAttribute;
@@ -28,6 +27,7 @@ export interface ProviderInfo {
   longDescription?: string;
   tags?: ModelProviderTags[];
   packages: ModelPackage[];
+  popularPackages?: ModelPackage[];
   params?: any;
   collectInputFor?: InputDescriptor[];
   refPage?: string;
@@ -41,38 +41,9 @@ const openSourceModels = Object.values(models).filter(
   ({ isOpenSource }) => isOpenSource,
 );
 
-// Initialize OpenRouter models placeholder with a loading placeholder
-const OPENROUTER_LOADING_PLACEHOLDER: ModelPackage = {
-  title: "Loading models...",
-  description: "Fetching available models from OpenRouter",
-  params: {
-    model: "placeholder",
-    contextLength: 0,
-  },
-  isOpenSource: false,
-};
-
-let openRouterModelsList: ModelPackage[] = [OPENROUTER_LOADING_PLACEHOLDER];
-
-/**
- * Initialize OpenRouter models by fetching from the API
- * This should be called once when the component mounts
- */
-export async function initializeOpenRouterModels() {
-  try {
-    const models = await getOpenRouterModelsList();
-    if (models.length > 0) {
-      openRouterModelsList = models;
-      // Update the providers object with the fetched models
-      if (providers.openrouter) {
-        providers.openrouter.packages = openRouterModelsList;
-      }
-    }
-  } catch (error) {
-    console.error("Failed to initialize OpenRouter models:", error);
-    // Keep placeholder on error so the UI doesn't break
-  }
-}
+export const ollamaStaticModels = Object.values(models).filter(
+  ({ providerOptions }) => providerOptions?.includes("ollama"),
+);
 
 export const apiBaseInput: InputDescriptor = {
   inputType: "text",
@@ -122,7 +93,6 @@ export const providers: Partial<Record<string, ProviderInfo>> = {
       models.cometapiGemini25Pro,
       models.cometapiGemini25Flash,
       models.cometapiGemini25FlashLite,
-      models.cometapiGemini20Flash,
       // xAI Grok family
       models.cometapiGrok40709,
       models.cometapiGrok3,
@@ -146,12 +116,15 @@ export const providers: Partial<Record<string, ProviderInfo>> = {
   openai: {
     title: "OpenAI",
     provider: "openai",
-    description: "Use gpt-5.1, gpt-5, gpt-4, or any other OpenAI model",
+    description: "Use gpt-5.4, gpt-5, or any other OpenAI model",
     longDescription:
-      "Use gpt-5.1, gpt-5, gpt-4, or any other OpenAI model. See [here](https://openai.com/product#made-for-developers) to obtain an API key.",
+      "Use gpt-5.4, gpt-5, or any other OpenAI model. See [here](https://openai.com/product#made-for-developers) to obtain an API key.",
     icon: "openai.png",
     tags: [ModelProviderTags.RequiresApiKey],
     packages: [
+      models.gpt5_4Pro,
+      models.gpt5_4,
+      models.gpt5_4Mini,
       models.gpt5_2,
       models.gpt5_1,
       models.gpt5,
@@ -241,7 +214,14 @@ export const providers: Partial<Record<string, ProviderInfo>> = {
       },
       ...completionParamsInputsConfigs,
     ],
-    packages: openRouterModelsList,
+    packages: [
+      {
+        title: "Loading models...",
+        description: "Fetching available models from OpenRouter",
+        params: { model: "placeholder" },
+        isOpenSource: false,
+      },
+    ],
   },
 
   moonshot: {
@@ -503,7 +483,7 @@ Select the \`GPT-4o\` model below to complete your provider configuration, but n
           title: "Ollama",
         },
       },
-      ...openSourceModels,
+      ...ollamaStaticModels,
     ],
     collectInputFor: [
       ...completionParamsInputsConfigs,
@@ -565,7 +545,6 @@ Select the \`GPT-4o\` model below to complete your provider configuration, but n
       },
     ],
     packages: [
-      models.llama31405bChat,
       models.llama3170bChat,
       models.llama318bChat,
       { ...models.mixtralTrial, title: "Mixtral" },
@@ -578,6 +557,38 @@ Select the \`GPT-4o\` model below to complete your provider configuration, but n
       },
     ],
     apiKeyUrl: "https://console.groq.com/keys",
+  },
+  minimax: {
+    title: "MiniMax",
+    provider: "minimax",
+    description:
+      "MiniMax offers high-performance models with 200K+ context windows at competitive pricing.",
+    longDescription:
+      "To get started with MiniMax, obtain an API key from the [MiniMax Platform](https://platform.minimax.io).",
+    tags: [ModelProviderTags.RequiresApiKey],
+    collectInputFor: [
+      {
+        inputType: "text",
+        key: "apiKey",
+        label: "API Key",
+        placeholder: "Enter your MiniMax API key",
+        required: true,
+      },
+    ],
+    packages: [
+      models.minimaxM27,
+      models.minimaxM27Highspeed,
+      models.minimaxM25,
+      models.minimaxM25Highspeed,
+      {
+        ...models.AUTODETECT,
+        params: {
+          ...models.AUTODETECT.params,
+          title: "MiniMax",
+        },
+      },
+    ],
+    apiKeyUrl: "https://platform.minimax.io",
   },
   deepseek: {
     title: "DeepSeek",
@@ -721,8 +732,9 @@ Select the \`GPT-4o\` model below to complete your provider configuration, but n
       },
     ],
     packages: [
-      models.gemini3ProPreview,
+      models.gemini31ProPreview,
       models.gemini3FlashPreview,
+      models.gemini31FlashLitePreview,
       models.gemini25Pro,
       models.gemini25Flash,
       models.gemini25FlashLite,
@@ -1119,7 +1131,6 @@ To get started, [register](https://dataplatform.cloud.ibm.com/registration/stepo
       models.asksageclaude45sonnetgov,
       models.asksageclaude45opus,
       models.asksageclaude45haiku,
-      models.asksagegemini20Flash,
       models.asksagegemini25Pro,
       models.asksagegemini25flash,
       models.asksagegpt5,
@@ -1281,6 +1292,50 @@ To get started, [register](https://dataplatform.cloud.ibm.com/registration/stepo
       },
     ],
     apiKeyUrl: "https://api.router.tetrate.ai/",
+  },
+  clawrouter: {
+    title: "ClawRouter",
+    provider: "clawrouter",
+    refPage: "clawrouter",
+    description:
+      "Open-source LLM router that automatically selects the cheapest capable model for each request",
+    longDescription: `[ClawRouter](https://github.com/BlockRunAI/ClawRouter) is an open-source LLM router that automatically selects the cheapest capable model for each request based on prompt complexity. It provides 78-96% cost savings on blended inference costs.
+
+To get started:
+1. Install ClawRouter: \`npx clawrouter\`
+2. The router runs locally at \`http://localhost:1337\`
+3. A wallet is auto-generated on first run
+4. Select a model preset below
+
+**Payment Options:**
+- \`blockrun/free\` — No payment required (free-tier models)
+- \`blockrun/eco\` — Economy tier (fund wallet with USDC)
+- \`blockrun/auto\` — Full routing (fund wallet with USDC)
+
+Fund your wallet with USDC on Solana or Base. ClawRouter uses x402 micropayments for seamless pay-per-use.`,
+    icon: "clawrouter.png",
+    tags: [ModelProviderTags.Local, ModelProviderTags.OpenSource],
+    packages: [
+      models.clawrouterAuto,
+      models.clawrouterFree,
+      models.clawrouterEco,
+      models.clawrouterPremium,
+      {
+        ...models.AUTODETECT,
+        params: {
+          ...models.AUTODETECT.params,
+          title: "ClawRouter",
+        },
+      },
+    ],
+    collectInputFor: [
+      {
+        ...apiBaseInput,
+        defaultValue: "http://localhost:1337/v1/",
+      },
+      ...completionParamsInputsConfigs,
+    ],
+    downloadUrl: "https://github.com/BlockRunAI/ClawRouter",
   },
   nous: {
     title: "Nous Research",

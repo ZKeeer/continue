@@ -121,7 +121,7 @@ export class HelperVars {
 
     // Construct full prefix/suffix (a few edge cases handled in here)
     const { prefix: fullPrefix, suffix: fullSuffix } =
-      await constructInitialPrefixSuffix(this.input, this.ide);
+      constructInitialPrefixSuffix(this.input, this._fileContents);
     const t3 = Date.now();
     this._fullPrefix = fullPrefix;
     this._fullSuffix = fullSuffix;

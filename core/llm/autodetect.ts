@@ -65,8 +65,10 @@ const PROVIDER_HANDLES_TEMPLATING: string[] = [
   "nebius",
   "relace",
   "openrouter",
+  "clawrouter",
   "deepseek",
   "xAI",
+  "minimax",
   "groq",
   "gemini",
   "docker",
@@ -122,6 +124,7 @@ const PROVIDER_SUPPORTS_IMAGES: string[] = [
   "sagemaker",
   "continue-proxy",
   "openrouter",
+  "clawrouter",
   "venice",
   "sambanova",
   "vertexai",
@@ -149,7 +152,7 @@ const MODEL_SUPPORTS_IMAGES: RegExp[] = [
   /pixtral/,
   /llama-?3\.2/,
   /llama-?4/, // might use something like /llama-?(?:[4-9](?:\.\d+)?|\d{2,}(?:\.\d+)?)/ for forward compat, if needed
-  /\bgemma-?3(?!n)/, // gemma3 supports vision, but gemma3n doesn't!
+  /\bgemma-?[34](?!n)/, // gemma3/gemma4 support vision, but gemma3n doesn't!
   /\b(pali|med)gemma/,
   /qwen(.*)vl/,
   /mistral-small/,
@@ -260,6 +263,7 @@ const PARALLEL_PROVIDERS: string[] = [
   "vertexai",
   "function-network",
   "scaleway",
+  "minimax",
   "tensorix",
 ];
 
