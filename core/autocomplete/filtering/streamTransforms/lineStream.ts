@@ -644,10 +644,15 @@ export async function* showWhateverWeHaveAtXMs(
   lines: LineStream,
   ms: number,
 ): LineStream {
-  const startTime = Date.now();
+  let startTime: number | null = null;
   let firstNonWhitespaceLineYielded = false;
 
   for await (const line of lines) {
+    // Start timing from first token arrival (excludes prefill wait)
+    if (startTime === null) {
+      startTime = Date.now();
+    }
+
     yield line;
 
     if (!firstNonWhitespaceLineYielded && line.trim() !== "") {
@@ -663,14 +668,24 @@ export async function* showWhateverWeHaveAtXMs(
 
 export async function* noDoubleNewLine(lines: LineStream): LineStream {
   let isFirstLine = true;
+  let lastLineWasEmpty = false;
 
   for await (const line of lines) {
-    if (line.trim() === "" && !isFirstLine) {
+    const isEmpty = line.trim() === "";
+
+    // Only stop on consecutive empty lines (not the first empty line)
+    if (isEmpty && lastLineWasEmpty && !isFirstLine) {
       return;
     }
 
-    isFirstLine = false;
+    if (isEmpty && !isFirstLine) {
+      lastLineWasEmpty = true;
+      yield line;
+      continue;
+    }
 
+    lastLineWasEmpty = false;
+    isFirstLine = false;
     yield line;
   }
 }
