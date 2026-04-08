@@ -10,8 +10,11 @@ import com.intellij.openapi.editor.event.CaretEvent
 import com.intellij.openapi.editor.event.CaretListener
 import com.intellij.openapi.editor.event.SelectionEvent
 import com.intellij.openapi.editor.event.SelectionListener
+import com.intellij.openapi.diagnostic.Logger
+import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.util.TextRange
 import kotlinx.coroutines.*
 
 /**
@@ -56,9 +59,15 @@ interface CursorMovementHandler {
 @Service(Service.Level.PROJECT)
 class ActiveHandlerManager(private val project: Project) : SelectionListener, CaretListener, DumbAware {
 
+    companion object {
+        private val LOG = Logger.getInstance(ActiveHandlerManager::class.java.simpleName)
+        private const val CURSOR_DEBOUNCE_MS = 100L
+    }
+
     private val coroutineScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private var activeHandler: CursorMovementHandler? = null
     private var isHandlingEvent = false
+    private var cursorEventJob: Job? = null
 
     // Track last known cursor position to detect movements
     private var lastKnownPosition: LogicalPosition? = null
@@ -135,6 +144,13 @@ class ActiveHandlerManager(private val project: Project) : SelectionListener, Ca
                 return
             }
 
+            // [zkdev] Debounced: send cursor movement event to Core for unified QueueManager push
+            cursorEventJob?.cancel()
+            cursorEventJob = coroutineScope.launch {
+                delay(CURSOR_DEBOUNCE_MS)
+                sendCursorMovedEventToCore(editor, currentPosition)
+            }
+
             val handler = activeHandler
             if (handler != null) {
                 // A handler is active - let it decide if this movement was expected
@@ -172,6 +188,38 @@ class ActiveHandlerManager(private val project: Project) : SelectionListener, Ca
 
     private fun isNextEditEnabled() =
         project.service<NextEditStatusService>().isNextEditEnabled()
+
+    /**
+     * [zkdev] Send cursor movement event to Core for unified QueueManager push.
+     */
+    private fun sendCursorMovedEventToCore(editor: Editor, position: LogicalPosition) {
+        try {
+            val document = editor.document
+            val file = FileDocumentManager.getInstance().getFile(document) ?: return
+            val filepath = file.url
+            
+            // Calculate range around cursor (±30 lines like VSCode)
+            val numSurroundingLines = 30
+            val startLine = Math.max(0, position.line - numSurroundingLines)
+            val endLine = Math.min(document.lineCount - 1, position.line + numSurroundingLines)
+            
+            // Extract content from document (in-memory, zero IO)
+            val startOffset = document.getLineStartOffset(startLine)
+            val endOffset = document.getLineEndOffset(endLine)
+            val content = document.getText(TextRange(startOffset, endOffset)).trim()
+            
+            // Send to Core
+            val coreMessenger = project.service<com.github.continuedev.continueintellijextension.services.ContinuePluginService>().coreMessenger
+            coreMessenger?.request("files/cursorMoved", mapOf(
+                "filepath" to filepath,
+                "content" to content,
+                "startLine" to startLine,
+                "endLine" to endLine
+            ), null) { }
+        } catch (e: Exception) {
+            LOG.debug("[zkdev] sendCursorMovedEventToCore failed: ${e.message}")
+        }
+    }
 
     fun dispose() {
         clearActiveHandler()

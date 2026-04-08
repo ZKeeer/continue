@@ -1062,41 +1062,89 @@ export class Core {
         contextSize: 5,
       };
 
-      EditAggregator.getInstance(
-        EDIT_AGGREGATION_OPTIONS,
-        (
-          beforeAfterdiff: BeforeAfterDiff,
-          cursorPosBeforeEdit: Position,
-          cursorPosAfterPrevEdit: Position,
-        ) => {
-          void processSmallEdit(
-            beforeAfterdiff,
-            cursorPosBeforeEdit,
-            cursorPosAfterPrevEdit,
-            data.configHandler,
-            data.getDefsFromLspFunction,
-            this.ide,
-          );
-        },
+      // [zkdev] Unified QueueManager push for IntelliJ (VSCode has its own ContinueCompletionProvider)
+      if (data.actions && data.actions.length > 0) {
+        for (const action of data.actions) {
+          if (action.filepath && action.editText) {
+            const startLine = action.range.start.line;
+            const endLine = action.range.end.line;
+
+            // localContentStartLine indicates Kotlin sent ±5 lines local content
+            const localOffset = (action as any).localContentStartLine ?? 0;
+            const relStart = startLine - localOffset;
+            const relEnd = endLine - localOffset;
+            const paddedStart = Math.max(0, relStart - 2);
+            const paddedEnd = relEnd + 2;
+
+            const lines = action.fileContents.split("\n");
+            const content = lines
+              .slice(paddedStart, Math.min(paddedEnd + 1, lines.length))
+              .join("\n");
+
+            // Use absolute line numbers for QueueManager dedup
+            this.queueManager.pushEdited(
+              action.filepath,
+              content,
+              startLine - 2 > 0 ? startLine - 2 : 0,
+              endLine + 2,
+            );
+          }
+        }
+      }
+
+      // [zkdev] Guard: EditAggregator requires configHandler (a non-serializable object),
+      // which is only present for in-process calls (VSCode). IntelliJ IPC won't have it.
+      if (data.configHandler) {
+        EditAggregator.getInstance(
+          EDIT_AGGREGATION_OPTIONS,
+          (
+            beforeAfterdiff: BeforeAfterDiff,
+            cursorPosBeforeEdit: Position,
+            cursorPosAfterPrevEdit: Position,
+          ) => {
+            void processSmallEdit(
+              beforeAfterdiff,
+              cursorPosBeforeEdit,
+              cursorPosAfterPrevEdit,
+              data.configHandler,
+              data.getDefsFromLspFunction,
+              this.ide,
+            );
+          },
+        );
+
+        const workspaceDir =
+          data.actions.length > 0 ? data.actions[0].workspaceDir : undefined;
+
+        // Store the latest context data
+        const instance = EditAggregator.getInstance();
+        (instance as any).latestContextData = {
+          configHandler: data.configHandler,
+          getDefsFromLspFunction: data.getDefsFromLspFunction,
+          recentlyEditedRanges: data.recentlyEditedRanges,
+          recentlyVisitedRanges: data.recentlyVisitedRanges,
+          workspaceDir: workspaceDir,
+        };
+
+        // queueMicrotask prevents blocking the UI thread during typing
+        queueMicrotask(() => {
+          void EditAggregator.getInstance().processEdits(data.actions);
+        });
+      }
+    });
+
+    // [zkdev] Unified cursor movement handler for IntelliJ
+    on("files/cursorMoved", async ({ data }) => {
+      if (!data.filepath || !data.content) {
+        return;
+      }
+
+      this.queueManager.pushVisited(
+        data.filepath,
+        data.content,
+        data.startLine,
+        data.endLine,
       );
-
-      const workspaceDir =
-        data.actions.length > 0 ? data.actions[0].workspaceDir : undefined;
-
-      // Store the latest context data
-      const instance = EditAggregator.getInstance();
-      (instance as any).latestContextData = {
-        configHandler: data.configHandler,
-        getDefsFromLspFunction: data.getDefsFromLspFunction,
-        recentlyEditedRanges: data.recentlyEditedRanges,
-        recentlyVisitedRanges: data.recentlyVisitedRanges,
-        workspaceDir: workspaceDir,
-      };
-
-      // queueMicrotask prevents blocking the UI thread during typing
-      queueMicrotask(() => {
-        void EditAggregator.getInstance().processEdits(data.actions);
-      });
     });
 
     // Docs, etc. indexing
