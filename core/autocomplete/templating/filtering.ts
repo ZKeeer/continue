@@ -27,11 +27,11 @@ const SNIPPET_SOURCE_LABELS: Record<
   string,
   string
 > = {
-  recentlyEditedRanges: "Reference: recently edited code",
-  recentlyVisitedRanges: "Reference: recently viewed code",
-  recentlyOpenedFiles: "Reference: code from open file",
-  diff: "Reference: recent git changes",
-  base: "Reference: related definition",
+  recentlyEditedRanges: "Reference for LLM: the developer recently edited the following code",
+  recentlyVisitedRanges: "Reference for LLM: the developer recently viewed the following code",
+  recentlyOpenedFiles: "Reference for LLM: the following code is from a file the developer has open",
+  diff: "Reference for LLM: the following are recent uncommitted changes by the developer",
+  base: "Reference for LLM: the following is a related function/class definition",
 };
 
 function annotateSnippetSource(
