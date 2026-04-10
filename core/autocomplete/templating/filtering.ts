@@ -9,6 +9,7 @@ import {
 import { HelperVars } from "../util/HelperVars";
 import { formatOpenedFilesContext } from "./formatOpenedFilesContext";
 
+import { getAnnotationComment } from "../constants/AutocompleteLanguageInfo";
 import { isValidSnippet } from "./validation";
 
 const getRemainingTokenCount = (helper: HelperVars): number => {
@@ -41,13 +42,13 @@ export const FIM_CONTEXT_LABEL =
 function annotateSnippetSource(
   snippet: AutocompleteSnippet,
   sourceKey: string,
-  commentMark: string,
 ): AutocompleteSnippet {
   if (snippet.type !== AutocompleteSnippetType.Code) return snippet;
   const label = SNIPPET_SOURCE_LABELS[sourceKey];
   if (!label) return snippet;
   const codeSnippet = snippet as AutocompleteCodeSnippet;
   // [zkdev] Language-aware comment annotation: uses # for Python, // for TS/JS, etc.
+  const commentMark = getAnnotationComment(codeSnippet.filepath);
   const annotation = `${commentMark} --- ${label} ---`;
   return { ...codeSnippet, content: `${annotation}\n${codeSnippet.content}` };
 }
@@ -283,9 +284,7 @@ export const getSnippets = (
         helper,
         finalSnippets,
         TOKEN_BUFFER,
-      ).map((s) =>
-        annotateSnippetSource(s, key, helper.lang.singleLineComment),
-      );
+      ).map((s) => annotateSnippetSource(s, key));
 
       // Add processed snippets to finalSnippets respecting token limits
       for (const snippet of processedSnippets) {
@@ -333,9 +332,7 @@ export const getSnippets = (
           }
           return false;
         })
-        .map((s) =>
-          annotateSnippetSource(s, key, helper.lang.singleLineComment),
-        );
+        .map((s) => annotateSnippetSource(s, key));
 
       // [zkdev] Limit diff snippets to 30% of total snippet budget to prevent crowding out
       // import definitions and root path context which are typically higher value

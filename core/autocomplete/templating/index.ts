@@ -1,7 +1,10 @@
 import Handlebars from "handlebars";
 
 import { CompletionOptions } from "../..";
-import { AutocompleteLanguageInfo } from "../constants/AutocompleteLanguageInfo";
+import {
+  AutocompleteLanguageInfo,
+  getAnnotationComment,
+} from "../constants/AutocompleteLanguageInfo";
 import { HelperVars } from "../util/HelperVars";
 
 import { ILLM } from "../../index.js";
@@ -171,7 +174,7 @@ function buildPrompt(
 ): { prompt: string; prefix: string; suffix: string } {
   // [zkdev] FIM context annotation: prepend to current file prefix so the LLM
   // understands the code role before seeing it. Uses language-specific comment mark.
-  const fimAnnotation = `${helper.lang.singleLineComment} --- ${FIM_CONTEXT_LABEL} ---`;
+  const fimAnnotation = `${getAnnotationComment(helper.filepath)} --- ${FIM_CONTEXT_LABEL} ---`;
   prefix = `${fimAnnotation}\n${prefix}`;
 
   if (compilePrefixSuffix) {

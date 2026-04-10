@@ -366,6 +366,62 @@ export const Markdown: AutocompleteLanguageInfo = {
   },
 };
 
+// Shell (bash/sh/zsh)
+const Shell: AutocompleteLanguageInfo = {
+  name: "Shell",
+  topLevelKeywords: ["function", "if", "for", "while", "case"],
+  singleLineComment: "#",
+  endOfLine: [],
+};
+
+// Perl
+const Perl: AutocompleteLanguageInfo = {
+  name: "Perl",
+  topLevelKeywords: ["sub", "my", "use", "package"],
+  singleLineComment: "#",
+  endOfLine: [";"],
+};
+
+// CSS / SCSS / Less (no single-line comment in standard CSS)
+const Css: AutocompleteLanguageInfo = {
+  name: "CSS",
+  topLevelKeywords: [],
+  singleLineComment: "//",
+  endOfLine: [";"],
+};
+
+// HTML / XML / SVG / Vue / Svelte (use // as annotation since <!-- --> is verbose)
+const Html: AutocompleteLanguageInfo = {
+  name: "HTML",
+  topLevelKeywords: [],
+  singleLineComment: "//",
+  endOfLine: [],
+};
+
+// TOML
+const Toml: AutocompleteLanguageInfo = {
+  name: "TOML",
+  topLevelKeywords: [],
+  singleLineComment: "#",
+  endOfLine: [],
+};
+
+// INI / conf
+const Ini: AutocompleteLanguageInfo = {
+  name: "INI",
+  topLevelKeywords: [],
+  singleLineComment: ";",
+  endOfLine: [],
+};
+
+// PowerShell
+const PowerShell: AutocompleteLanguageInfo = {
+  name: "PowerShell",
+  topLevelKeywords: ["function", "param", "if", "foreach"],
+  singleLineComment: "#",
+  endOfLine: [],
+};
+
 export const LANGUAGES: { [extension: string]: AutocompleteLanguageInfo } = {
   ts: Typescript,
   js: JavaScript,
@@ -409,9 +465,44 @@ export const LANGUAGES: { [extension: string]: AutocompleteLanguageInfo } = {
   md: Markdown,
   lua: Lua,
   luau: Lua,
+  // Shell
+  sh: Shell,
+  bash: Shell,
+  zsh: Shell,
+  // Perl
+  pl: Perl,
+  pm: Perl,
+  // CSS family
+  css: Css,
+  scss: Css,
+  less: Css,
+  sass: Css,
+  // HTML family
+  html: Html,
+  htm: Html,
+  xml: Html,
+  svg: Html,
+  vue: Html,
+  svelte: Html,
+  // Config
+  toml: Toml,
+  ini: Ini,
+  conf: Ini,
+  // PowerShell
+  ps1: PowerShell,
+  psm1: PowerShell,
 };
 
 export function languageForFilepath(fileUri: string): AutocompleteLanguageInfo {
   const extension = getUriFileExtension(fileUri);
   return LANGUAGES[extension] || Typescript;
+}
+
+/**
+ * [zkdev] Get the single-line comment mark for annotation purposes.
+ * Falls back to "//" for languages without singleLineComment (or empty string like Markdown).
+ */
+export function getAnnotationComment(fileUri: string): string {
+  const lang = languageForFilepath(fileUri);
+  return lang.singleLineComment || "//";
 }
