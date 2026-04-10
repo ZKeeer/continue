@@ -9,6 +9,9 @@ export class CompletionStreamer {
   private streamTransformPipeline = new StreamTransformPipeline();
   private generatorReuseManager: GeneratorReuseManager;
 
+  // [zkdev] latest-only: only the most recent stream is allowed to yield results
+  private _latestStreamEpoch = 0;
+
   constructor(onError: (err: any) => void) {
     this.generatorReuseManager = new GeneratorReuseManager(onError);
   }
@@ -23,9 +26,14 @@ export class CompletionStreamer {
     completionOptions: Partial<CompletionOptions> | undefined,
     helper: HelperVars,
   ) {
+    // [zkdev] latest-only: bump epoch, stale streams will stop yielding
+    const myEpoch = ++this._latestStreamEpoch;
+
     // Full stop means to stop the LLM's generation, instead of just truncating the displayed completion
     const fullStop = () =>
       this.generatorReuseManager.currentGenerator?.cancel();
+
+    const isStale = () => myEpoch !== this._latestStreamEpoch;
 
     // Try to reuse pending requests if what the user typed matches start of completion
     const generator = this.generatorReuseManager.getGenerator(
@@ -57,7 +65,8 @@ export class CompletionStreamer {
     // LLM
     const generatorWithCancellation = async function* () {
       for await (const update of generator) {
-        if (token.aborted) {
+        if (token.aborted || isStale()) {
+          fullStop();
           return;
         }
         yield update;
@@ -78,6 +87,10 @@ export class CompletionStreamer {
       : initialGenerator;
 
     for await (const update of transformedGenerator) {
+      if (isStale()) {
+        fullStop();
+        return;
+      }
       yield update;
     }
   }
