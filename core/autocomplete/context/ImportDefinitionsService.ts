@@ -98,6 +98,9 @@ export class ImportDefinitionsService {
 
     // [zkdev] Parallelize gotoDefinition calls + 150ms timeout per call
     // Original code was serial for-loop, causing 200ms*N sequential latency
+    // [zkdev] Get workspace dirs once for filtering definition targets
+    const workspaceDirs = await this.ide.getWorkspaceDirs();
+
     const importResults = await Promise.all(
       matches.map(async (match) => {
         const symbolName = match.captures[0].node.text;
@@ -116,8 +119,12 @@ export class ImportDefinitionsService {
           gotoFn,
           new Promise<any[]>((resolve) => setTimeout(() => resolve([]), 150)),
         ]);
+        // [zkdev] Filter out definitions outside workspace (stdlib, site-packages, node_modules etc.)
+        const workspaceDefs = defs.filter(
+          (def) => findUriInDirs(def.filepath, workspaceDirs).foundInDir,
+        );
         const ranges = await Promise.all(
-          defs.map(async (def) => ({
+          workspaceDefs.map(async (def) => ({
             ...def,
             contents: await this.ide.readRangeInFile(def.filepath, def.range),
           })),
@@ -126,7 +133,9 @@ export class ImportDefinitionsService {
       }),
     );
     for (const { symbolName, ranges } of importResults) {
-      fileInfo.imports[symbolName] = ranges;
+      if (ranges.length > 0) {
+        fileInfo.imports[symbolName] = ranges;
+      }
     }
 
     return fileInfo;

@@ -21,18 +21,17 @@ const getRemainingTokenCount = (helper: HelperVars): number => {
 
 const TOKEN_BUFFER = 10; // We may need extra tokens for snippet description etc.
 
-// [zkdev] Snippet source annotation — structured bracket format to avoid confusion
-// with programming language comments. Format: [PROMPT: SOURCE_TYPE - PRIORITY_LEVEL]
-// This format is language-agnostic and clearly distinguishable from code comments.
+// [zkdev] Snippet source annotation — natural-language comment style.
+// Disguised as developer reference comments so LLM treats them as contextual hints.
 const SNIPPET_SOURCE_LABELS: Record<
   string,
-  { label: string; priority: string }
+  string
 > = {
-  recentlyEditedRanges: { label: "RECENT_EDIT", priority: "HIGH" },
-  recentlyVisitedRanges: { label: "RECENT_VISIT", priority: "HIGH" },
-  recentlyOpenedFiles: { label: "OPEN_FILE", priority: "MEDIUM" },
-  diff: { label: "GIT_DIFF", priority: "LOW" },
-  base: { label: "DEFINITION", priority: "LOW" },
+  recentlyEditedRanges: "Reference: recently edited code",
+  recentlyVisitedRanges: "Reference: recently viewed code",
+  recentlyOpenedFiles: "Reference: code from open file",
+  diff: "Reference: recent git changes",
+  base: "Reference: related definition",
 };
 
 function annotateSnippetSource(
@@ -40,11 +39,11 @@ function annotateSnippetSource(
   sourceKey: string,
 ): AutocompleteSnippet {
   if (snippet.type !== AutocompleteSnippetType.Code) return snippet;
-  const meta = SNIPPET_SOURCE_LABELS[sourceKey];
-  if (!meta) return snippet;
+  const label = SNIPPET_SOURCE_LABELS[sourceKey];
+  if (!label) return snippet;
   const codeSnippet = snippet as AutocompleteCodeSnippet;
-  // [zkdev] Bracket format: language-agnostic, won't clash with // # -- or /* */
-  const annotation = `[PROMPT: ${meta.label} - ${meta.priority} PRIORITY]`;
+  // [zkdev] Natural comment annotation: looks like a developer note, not a structured tag
+  const annotation = `--- ${label} ---`;
   return { ...codeSnippet, content: `${annotation}\n${codeSnippet.content}` };
 }
 
