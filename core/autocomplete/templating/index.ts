@@ -316,10 +316,31 @@ export function renderPromptWithTokenLimit({
     helper.modelName,
   );
 
-  // [zkdev] Log the final autocomplete prompt for debugging
+  const estimatedPromptTokens = estimateTokensFast(prompt);
+  const estimatedPrefixTokens = estimateTokensFast(compiledPrefix);
+  const estimatedSuffixTokens = estimateTokensFast(compiledSuffix);
+  const remainingPromptBudget = Math.max(
+    0,
+    helper.options.maxPromptTokens - estimatedPromptTokens,
+  );
+
   console.log(
-    `[Autocomplete Prompt] model=${helper.modelName} file=${helper.filepath} ` +
-      `prefixLen=${compiledPrefix.length} suffixLen=${compiledSuffix.length} ` +
+    `[Autocomplete Prompt Tokens] model=${helper.modelName} file=${helper.filepath} ` +
+      `maxPromptTokens=${helper.options.maxPromptTokens} ` +
+      `prefixPct=${helper.options.prefixPercentage} ` +
+      `suffixPct=${helper.options.maxSuffixPercentage} ` +
+      `estPrefixTokens=${estimatedPrefixTokens} ` +
+      `estSuffixTokens=${estimatedSuffixTokens} ` +
+      `estPromptTokens=${estimatedPromptTokens} ` +
+      `remainingPromptBudget=${remainingPromptBudget}`,
+  );
+
+  // [zkdev] Log prompt composition separately so token usage and body are easier to scan.
+  console.log(
+    `[Autocomplete Prompt Structure] model=${helper.modelName} file=${helper.filepath} ` +
+      `snippetCount=${snippets.length} ` +
+      `prefixLen=${compiledPrefix.length} ` +
+      `suffixLen=${compiledSuffix.length} ` +
       `promptLen=${prompt.length}\n--- PROMPT START ---\n${prompt}\n--- PROMPT END ---`,
   );
 

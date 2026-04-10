@@ -3,7 +3,7 @@ import { TabAutocompleteOptions } from "../index.js";
 export const DEFAULT_AUTOCOMPLETE_OPTS: TabAutocompleteOptions = {
   disable: false,
   maxPromptTokens: 4096,
-  prefixPercentage: 0.3,
+  prefixPercentage: 0.4,
   maxSuffixPercentage: 0.2,
   debounceDelay: 350,
   modelTimeout: 150,
@@ -30,24 +30,6 @@ export const DEFAULT_AUTOCOMPLETE_OPTS: TabAutocompleteOptions = {
   experimental_enablePrefetch: false,
   experimental_enableEditIntentDetection: false,
   experimental_enableSimilarEditDetection: false,
-};
-
-/**
- * [zkdev] Optimized preset for: sglang + qwen3-coder-30b-a3b-instruct + A100
- * Apply via tabAutocompleteOptions in config.json:
- *   "tabAutocompleteOptions": { ...ZKDEV_SGLANG_QWEN3_A100_OPTS }
- */
-export const ZKDEV_SGLANG_QWEN3_A100_OPTS: Partial<TabAutocompleteOptions> = {
-  maxPromptTokens: 8192,
-  prefixPercentage: 0.45,
-  maxSuffixPercentage: 0.25,
-  debounceDelay: 120,
-  modelTimeout: 300,
-  showWhateverWeHaveAtXMs: 500,
-  experimental_enableStaticContextualization: true,
-  experimental_enablePrefetch: true,
-  experimental_enableEditIntentDetection: true,
-  experimental_enableSimilarEditDetection: true,
 };
 
 export const COUNT_COMPLETION_REJECTED_AFTER = 10_000;

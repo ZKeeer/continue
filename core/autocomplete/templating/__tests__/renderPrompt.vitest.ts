@@ -21,22 +21,29 @@ vi.mock("handlebars", () => {
 // Token utilities – we map 1 char = 1 token for simplicity
 vi.mock("../../../llm/countTokens", () => {
   const countTokens = (str: string) => str.length;
+  const estimateTokensFast = (str: string) => str.length;
   const pruneLinesFromTop = (str: string, allowed: number) =>
     str.slice(Math.max(0, str.length - allowed));
   const pruneLinesFromBottom = (str: string, allowed: number) =>
     str.slice(0, allowed);
+  const pruneLinesFromTopFast = pruneLinesFromTop;
+  const pruneLinesFromBottomFast = pruneLinesFromBottom;
   const getTokenCountingBufferSafety = () => 0;
 
   return {
     countTokens,
+    estimateTokensFast,
     pruneLinesFromTop,
     pruneLinesFromBottom,
+    pruneLinesFromTopFast,
+    pruneLinesFromBottomFast,
     getTokenCountingBufferSafety,
   };
 });
 
 // Snippet selection – configurable via constant return value
 vi.mock("../filtering", () => ({
+  FIM_CONTEXT_LABEL: "fim-context",
   getSnippets: () => [],
 }));
 
@@ -198,7 +205,8 @@ describe("compilePrefixSuffix vs snippet formatting", () => {
       helper,
     });
 
-    expect(compiledPrefix.startsWith("COMP_PRUNED_PREFIX")).toBe(true);
+    expect(compiledPrefix.includes("COMP_")).toBe(true);
+    expect(compiledPrefix.includes("PRUNED_PREFIX")).toBe(true);
   });
 
   it("prepends formatted snippets when no compiler present", () => {

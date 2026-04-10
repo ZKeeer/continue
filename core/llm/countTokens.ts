@@ -11,7 +11,6 @@ import { autodetectTemplateType } from "./autodetect.js";
 import {
   addSpaceToAnyEmptyMessages,
   chatMessageIsEmpty,
-  isUserOrToolMsg,
   messageHasToolCallId,
 } from "./messages.js";
 
@@ -279,8 +278,9 @@ function extractToolSequence(messages: ChatMessage[]): ChatMessage[] {
   return toolSequence;
 }
 
-// [zkdev] Ratio used for fast character-based token estimation (chars-per-token)
-const CHARS_PER_TOKEN_ESTIMATE = 3.5;
+// Ratio used for fast character-based token estimation (chars-per-token).
+// Tuned against vLLM prompt_token_ids logs for code-heavy autocomplete prompts.
+const CHARS_PER_TOKEN_ESTIMATE = 4.5;
 
 function estimateTokensFast(text: string): number {
   return Math.ceil(text.length / CHARS_PER_TOKEN_ESTIMATE);
