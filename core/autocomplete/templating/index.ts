@@ -18,7 +18,7 @@ import {
   AutocompleteTemplate,
   getTemplateForModel,
 } from "./AutocompleteTemplate";
-import { getSnippets } from "./filtering";
+import { FIM_CONTEXT_LABEL, getSnippets } from "./filtering";
 import { formatSnippets } from "./formatting";
 import { getStopTokens } from "./getStopTokens";
 
@@ -169,6 +169,11 @@ function buildPrompt(
   workspaceDirs: string[],
   reponame: string,
 ): { prompt: string; prefix: string; suffix: string } {
+  // [zkdev] FIM context annotation: prepend to current file prefix so the LLM
+  // understands the code role before seeing it. Uses language-specific comment mark.
+  const fimAnnotation = `${helper.lang.singleLineComment} --- ${FIM_CONTEXT_LABEL} ---`;
+  prefix = `${fimAnnotation}\n${prefix}`;
+
   if (compilePrefixSuffix) {
     [prefix, suffix] = compilePrefixSuffix(
       prefix,

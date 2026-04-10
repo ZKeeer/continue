@@ -23,27 +23,32 @@ const TOKEN_BUFFER = 10; // We may need extra tokens for snippet description etc
 
 // [zkdev] Snippet source annotation — natural-language comment style.
 // Disguised as developer reference comments so LLM treats them as contextual hints.
-const SNIPPET_SOURCE_LABELS: Record<
-  string,
-  string
-> = {
-  recentlyEditedRanges: "Reference for LLM: the developer recently edited the following code",
-  recentlyVisitedRanges: "Reference for LLM: the developer recently viewed the following code",
-  recentlyOpenedFiles: "Reference for LLM: the following code is from a file the developer has open",
+const SNIPPET_SOURCE_LABELS: Record<string, string> = {
+  recentlyEditedRanges:
+    "Reference for LLM: the developer recently edited the following code",
+  recentlyVisitedRanges:
+    "Reference for LLM: the developer recently viewed the following code",
+  recentlyOpenedFiles:
+    "Reference for LLM: the following code is from a file the developer has open",
   diff: "Reference for LLM: the following are recent uncommitted changes by the developer",
   base: "Reference for LLM: the following is a related function/class definition",
 };
 
+// [zkdev] FIM context annotation — placed at the beginning of the current file's prefix.
+export const FIM_CONTEXT_LABEL =
+  "Reference for LLM: below is the prefix and suffix code where the developer needs fill-in-the-middle completion";
+
 function annotateSnippetSource(
   snippet: AutocompleteSnippet,
   sourceKey: string,
+  commentMark: string,
 ): AutocompleteSnippet {
   if (snippet.type !== AutocompleteSnippetType.Code) return snippet;
   const label = SNIPPET_SOURCE_LABELS[sourceKey];
   if (!label) return snippet;
   const codeSnippet = snippet as AutocompleteCodeSnippet;
-  // [zkdev] Natural comment annotation: looks like a developer note, not a structured tag
-  const annotation = `--- ${label} ---`;
+  // [zkdev] Language-aware comment annotation: uses # for Python, // for TS/JS, etc.
+  const annotation = `${commentMark} --- ${label} ---`;
   return { ...codeSnippet, content: `${annotation}\n${codeSnippet.content}` };
 }
 
@@ -61,7 +66,8 @@ function truncateAtBlockBoundary(
   content: string,
   maxTokens: number,
   modelName: string,
-  countFn: (content: string, model: string) => number = (c) => estimateTokensFast(c),
+  countFn: (content: string, model: string) => number = (c) =>
+    estimateTokensFast(c),
 ): string {
   const tokens = countFn(content, modelName);
   if (tokens <= maxTokens) return content;
@@ -277,7 +283,9 @@ export const getSnippets = (
         helper,
         finalSnippets,
         TOKEN_BUFFER,
-      ).map((s) => annotateSnippetSource(s, key));
+      ).map((s) =>
+        annotateSnippetSource(s, key, helper.lang.singleLineComment),
+      );
 
       // Add processed snippets to finalSnippets respecting token limits
       for (const snippet of processedSnippets) {
@@ -325,7 +333,9 @@ export const getSnippets = (
           }
           return false;
         })
-        .map((s) => annotateSnippetSource(s, key));
+        .map((s) =>
+          annotateSnippetSource(s, key, helper.lang.singleLineComment),
+        );
 
       // [zkdev] Limit diff snippets to 30% of total snippet budget to prevent crowding out
       // import definitions and root path context which are typically higher value
