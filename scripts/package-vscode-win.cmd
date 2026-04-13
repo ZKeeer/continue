@@ -11,7 +11,7 @@ REM Flags can be combined.
 set "TARGET=win32-x64"
 set "SKIP_INSTALLS=0"
 set "SKIP_GUI=0"
-
+set "CONTINUE_DOWNLOAD_BINARY=NOTEXISTS"
 REM Save script directory before shift corrupts %0
 set "SCRIPT_DIR=%~dp0"
 

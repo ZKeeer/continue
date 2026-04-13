@@ -214,6 +214,13 @@ async function copyNodeModules() {
 }
 
 async function downloadSqliteBinary(target) {
+  // Skip download if sqlite3 binary already exists (when CONTINUE_DOWNLOAD_BINARY=NOTEXISTS)
+  const existingBin = path.join(__dirname, "../../../core/node_modules/sqlite3/build/Release/node_sqlite3.node");
+  if (process.env.CONTINUE_DOWNLOAD_BINARY === "NOTEXISTS" && fs.existsSync(existingBin)) {
+    console.log(`[info] sqlite3 binary already exists at ${existingBin}, skipping download`);
+    return;
+  }
+
   console.log("[info] Downloading pre-built sqlite3 binary");
   rimrafSync("../../core/node_modules/sqlite3/build");
   const downloadUrl = {
