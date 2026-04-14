@@ -5,7 +5,7 @@ export const DEFAULT_AUTOCOMPLETE_OPTS: TabAutocompleteOptions = {
   maxPromptTokens: 4096,
   prefixPercentage: 0.4,
   maxSuffixPercentage: 0.2,
-  debounceDelay: 350,
+  debounceDelay: 120,
   modelTimeout: 150,
   multilineCompletions: "auto",
   // @deprecated TO BE REMOVED

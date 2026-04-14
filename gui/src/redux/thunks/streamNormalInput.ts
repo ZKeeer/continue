@@ -35,7 +35,11 @@ import { getBaseSystemMessage } from "../util/getBaseSystemMessage";
 import { callToolById } from "./callToolById";
 import { evaluateToolPolicies } from "./evaluateToolPolicies";
 import { preprocessToolCalls } from "./preprocessToolCallArgs";
+import { loadSession } from "./session";
 import { streamResponseAfterToolCall } from "./streamResponseAfterToolCall";
+
+// Auto-compact threshold: trigger compaction when context usage exceeds this percentage
+const AUTO_COMPACT_THRESHOLD = 0.8;
 
 /**
  * Builds completion options with reasoning configuration based on session state and model capabilities.
@@ -189,6 +193,36 @@ export const streamNormalInput = createAsyncThunk<
 
     const { compiledChatMessages, didPrune, contextPercentage } =
       precompiledRes.content;
+
+    // [zkdev] Auto-compact: if context usage exceeds threshold and history has no summary yet
+    const history = state.session.history;
+    const hasExistingSummary = history.some((item) => item.conversationSummary);
+    if (
+      contextPercentage > AUTO_COMPACT_THRESHOLD &&
+      !hasExistingSummary &&
+      history.length > 2 &&
+      depth === 0 // Only auto-compact on first attempt to avoid loops
+    ) {
+      console.log(
+        `[AutoCompact] Triggered: contextPercentage=${(contextPercentage * 100).toFixed(1)}% > ${AUTO_COMPACT_THRESHOLD * 100}%`,
+      );
+      // Request compaction for all messages except the last user message
+      const compactIndex = history.length - 2;
+      const sessionId = state.session.id;
+      if (sessionId && compactIndex > 0) {
+        await extra.ideMessenger.request("conversation/compact", {
+          index: compactIndex,
+          sessionId,
+        });
+        // Reload session to get compacted history
+        await dispatch(loadSession({ sessionId, saveCurrentSession: false }));
+        // Retry with compacted history
+        dispatch(setInactive());
+        return dispatch(
+          streamNormalInput({ legacySlashCommandData, depth: depth + 1 }),
+        );
+      }
+    }
 
     dispatch(setIsPruned(didPrune));
     dispatch(setContextPercentage(contextPercentage));

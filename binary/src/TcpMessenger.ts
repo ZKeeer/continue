@@ -11,17 +11,15 @@ export class TcpMessenger<
   private port: number = 3000;
   private host: string = "127.0.0.1";
   private socket: net.Socket | null = null;
+  private server: net.Server | null = null;
 
   typeListeners = new Map<keyof ToProtocol, ((message: Message) => any)[]>();
   idListeners = new Map<string, (message: Message) => any>();
 
   constructor() {
-    const server = net.createServer((socket) => {
+    this.server = net.createServer((socket) => {
       this.socket = socket;
-
-      socket.on("connect", () => {
-        console.log("Connected to server");
-      });
+      socket.setNoDelay(true);
 
       socket.on("data", (data: Buffer) => {
         this._handleData(data);
@@ -36,7 +34,19 @@ export class TcpMessenger<
       });
     });
 
-    server.listen(this.port, this.host, () => {
+    this.server.on("error", (err: any) => {
+      console.error(`TCP server error on port ${this.port}:`, err);
+      // 尝试使用备用端口
+      if (err.code === "EADDRINUSE") {
+        console.log(`Port ${this.port} is in use, trying ${this.port + 1}`);
+        this.port += 1;
+        this.server?.listen(this.port, this.host);
+      } else {
+        process.exit(1);
+      }
+    });
+
+    this.server.listen(this.port, this.host, () => {
       console.log(`Server listening on port ${this.port}`);
     });
   }
@@ -47,10 +57,24 @@ export class TcpMessenger<
     this._onErrorHandlers.push(handler);
   }
 
-  public async awaitConnection() {
-    while (!this.socket) {
-      await new Promise((resolve) => setTimeout(resolve, 100));
-    }
+  public async awaitConnection(timeoutMs: number = 300000): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const startTime = Date.now();
+
+      const check = () => {
+        if (this.socket) {
+          resolve();
+        } else {
+          const elapsed = Date.now() - startTime;
+          if (elapsed > timeoutMs) {
+            reject(new Error(`TCP connection timeout after ${timeoutMs}ms`));
+          } else {
+            setTimeout(check, 100);
+          }
+        }
+      };
+      check();
+    });
   }
 
   private _handleLine(line: string) {
@@ -148,6 +172,48 @@ export class TcpMessenger<
     lines.forEach((line) => this._handleLine(line));
   }
 
+  private _writeQueue: string[] = [];
+  private _writing = false;
+  private _drainWaiters: (() => void)[] = [];
+
+  private async _drain(): Promise<void> {
+    return new Promise<void>((resolve) => {
+      if (!this.socket || this.socket.writableEnded) {
+        resolve();
+        return;
+      }
+      const canWrite = this.socket.write("");
+      if (canWrite !== false) {
+        resolve();
+        return;
+      }
+      this._drainWaiters.push(resolve);
+      this.socket.once("drain", () => {
+        const waiters = this._drainWaiters.splice(0);
+        waiters.forEach((w) => w());
+      });
+    });
+  }
+
+  private async _flushQueue() {
+    if (this._writing) return;
+    this._writing = true;
+    try {
+      while (this._writeQueue.length > 0) {
+        const data = this._writeQueue.shift()!;
+        if (!this.socket || this.socket.writableEnded) break;
+        const canWrite = this.socket.write(data);
+        if (canWrite === false) {
+          await this._drain();
+        }
+      }
+    } catch (e) {
+      console.error("[TcpMessenger] Write error:", e);
+    } finally {
+      this._writing = false;
+    }
+  }
+
   send<T extends keyof FromProtocol>(
     messageType: T,
     data: FromProtocol[T][0],
@@ -160,7 +226,9 @@ export class TcpMessenger<
       messageId,
     };
 
-    this.socket?.write(JSON.stringify(msg) + "\r\n");
+    const d = JSON.stringify(msg) + "\r\n";
+    this._writeQueue.push(d);
+    void this._flushQueue();
     return messageId;
   }
 

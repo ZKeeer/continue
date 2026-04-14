@@ -719,11 +719,12 @@ export class Core {
 
     // Autocomplete
     on("autocomplete/complete", async (msg) => {
+      const abortController = this.addMessageAbortController(msg.messageId);
       msg.data.filepath = normalizeUriScheme(msg.data.filepath);
       const outcome =
         await this.completionProvider.provideInlineCompletionItems(
           msg.data,
-          undefined,
+          abortController.signal,
         );
       return outcome ? [outcome.completion] : [];
     });
@@ -1087,7 +1088,7 @@ export class Core {
             const startLine = action.range.start.line;
             const endLine = action.range.end.line;
 
-            // localContentStartLine indicates Kotlin sent ±5 lines local content
+            // localContentStartLine indicates Kotlin sent Â±5 lines local content
             const localOffset = (action as any).localContentStartLine ?? 0;
             const relStart = startLine - localOffset;
             const relEnd = endLine - localOffset;

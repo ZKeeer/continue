@@ -1,0 +1,15 @@
+binary/src/IpcMessenger.ts
+binary/src/TcpMessenger.ts
+binary/src/index.ts
+core/autocomplete/util/AutocompleteDebouncer.ts
+core/core.ts
+core/protocol/messenger/messageIde.ts
+core/util/parameters.ts
+extensions/intellij/src/main/kotlin/com/github/continuedev/continueintellijextension/autocomplete/CompletionService.kt
+extensions/intellij/src/main/kotlin/com/github/continuedev/continueintellijextension/autocomplete/ContinueCompletionService.kt
+extensions/intellij/src/main/kotlin/com/github/continuedev/continueintellijextension/autocomplete/ContinueInlineCompletionProvider.kt
+extensions/intellij/src/main/kotlin/com/github/continuedev/continueintellijextension/continue/CoreMessenger.kt
+extensions/intellij/src/main/kotlin/com/github/continuedev/continueintellijextension/continue/IdeProtocolClient.kt
+extensions/intellij/src/main/kotlin/com/github/continuedev/continueintellijextension/continue/process/ContinueProcessHandler.kt
+extensions/intellij/src/main/kotlin/com/github/continuedev/continueintellijextension/continue/process/ContinueSocketProcess.kt
+extensions/intellij/src/test/kotlin/com/github/continuedev/continueintellijextension/unit/ContinueInlineCompletionProviderTest.kt

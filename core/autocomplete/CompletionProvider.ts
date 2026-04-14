@@ -292,6 +292,51 @@ export class CompletionProvider {
     }
   }
 
+  /**
+   * Ensure QueueManager is warmed for this file: proactive warm + synthesize visitedRange.
+   * Extracted to reduce provideInlineCompletionItems complexity.
+   */
+  private _ensureQueueWarmed(
+    input: AutocompleteInput,
+    helper: HelperVars,
+  ): void {
+    if (!this.queueManager) return;
+
+    // Proactive warm: if file not yet warmed, push header from already-read fileLines
+    if (!this.queueManager.isReady(input.filepath)) {
+      const headerEnd = Math.min(30, helper.fileLines.length);
+      const headerContent = helper.fileLines.slice(0, headerEnd).join("\n");
+      this.queueManager.pushOpenedFile(
+        input.filepath,
+        headerContent,
+        0,
+        headerEnd,
+      );
+      this.queueManager.markCoreReady(input.filepath);
+      const controller = this.queueManager.startWarming(input.filepath);
+      this.warmFile(input.filepath, controller.signal).catch(() => {});
+      console.log(
+        `[QueueManager ProactiveWarm] Warmed ${input.filepath} from autocomplete request`,
+      );
+    }
+
+    // Synthesize visitedRange from cursor position (±15 lines)
+    const cursorLine = input.pos.line;
+    const visitStart = Math.max(0, cursorLine - 15);
+    const visitEnd = Math.min(helper.fileLines.length, cursorLine + 16);
+    const visitContent = helper.fileLines
+      .slice(visitStart, visitEnd)
+      .join("\n");
+    if (visitContent.trim().length > 0) {
+      this.queueManager.pushVisited(
+        input.filepath,
+        visitContent,
+        visitStart,
+        visitEnd,
+      );
+    }
+  }
+
   public async provideInlineCompletionItems(
     input: AutocompleteInput,
     token: AbortSignal | undefined,
@@ -362,46 +407,8 @@ export class CompletionProvider {
           `helperVarsMs=${afterHelperVars - afterDebounce}`,
       );
 
-      // [zkdev] Proactive warm: if QueueManager exists but file not yet warmed,
-      // push current file header from already-read fileLines (zero extra IPC).
-      // This handles the case where files/opened event hasn't fired yet
-      // (e.g., file was already open when Core started).
-      if (this.queueManager && !this.queueManager.isReady(input.filepath)) {
-        const headerEnd = Math.min(30, helper.fileLines.length);
-        const headerContent = helper.fileLines.slice(0, headerEnd).join("\n");
-        this.queueManager.pushOpenedFile(
-          input.filepath,
-          headerContent,
-          0,
-          headerEnd,
-        );
-        this.queueManager.markCoreReady(input.filepath);
-        // Non-blocking import warming for subsequent requests
-        const controller = this.queueManager.startWarming(input.filepath);
-        this.warmFile(input.filepath, controller.signal).catch(() => {});
-        console.log(
-          `[QueueManager ProactiveWarm] Warmed ${input.filepath} from autocomplete request`,
-        );
-      }
-
-      // [zkdev] Synthesize visitedRange from cursor position (compensates for IntelliJ
-      // not sending selection events). Push ±15 lines around cursor as "visited".
-      if (this.queueManager) {
-        const cursorLine = input.pos.line;
-        const visitStart = Math.max(0, cursorLine - 15);
-        const visitEnd = Math.min(helper.fileLines.length, cursorLine + 16);
-        const visitContent = helper.fileLines
-          .slice(visitStart, visitEnd)
-          .join("\n");
-        if (visitContent.trim().length > 0) {
-          this.queueManager.pushVisited(
-            input.filepath,
-            visitContent,
-            visitStart,
-            visitEnd,
-          );
-        }
-      }
+      // [zkdev] Proactive warm + visitedRange synthesis (extracted to reduce complexity)
+      this._ensureQueueWarmed(input, helper);
 
       if (await shouldPrefilter(helper, this.ide)) {
         return undefined;
@@ -467,14 +474,26 @@ export class CompletionProvider {
       // [zkdev] Phase 3: Use QueueManager when available and file is ready,
       // otherwise fall back to existing getAllSnippetsWithoutRace path.
       let snippetPayload;
+      let usedFastPath = false;
       if (this.queueManager && this.queueManager.isReady(input.filepath)) {
         // Queue-based fast path: snippets already collected by event-driven push
+        // Skip expensive IPC operations (getRootPathSnippets, enrichSnippetPayload)
+        // to achieve <30ms context collection
         const queuePayload = this.queueManager.toSnippetPayload(
           helper.options.maxPromptTokens ?? 2000,
         );
-        // [zkdev] Fetch rootPathSnippets from context service (depends on treePath from HelperVars)
-        const rootPathSnippets =
-          await this.contextRetrievalService.getRootPathSnippets(helper);
+        // [zkdev] Skip rootPathSnippets in fast path - it requires gotoDefinition IPC (~150ms)
+        // The scopeSummary from enrichSnippetPayload is still added if available locally
+        const scopeSnippet = helper.getScopeSummarySnippet();
+        const rootPathSnippets: AutocompleteCodeSnippet[] = scopeSnippet
+          ? [
+              {
+                filepath: scopeSnippet.filepath,
+                content: scopeSnippet.content,
+                type: AutocompleteSnippetType.Code,
+              },
+            ]
+          : [];
         snippetPayload = {
           rootPathSnippets,
           ideSnippets: [],
@@ -482,6 +501,10 @@ export class CompletionProvider {
           staticSnippet: [],
           ...queuePayload,
         };
+        usedFastPath = true;
+        console.log(
+          `[Autocomplete IntelliJ Sequence] ${input.completionId} completion-provider.snippets queue-fast-path`,
+        );
       } else {
         // Legacy path: collect snippets on-demand
         snippetPayload = await getAllSnippetsWithoutRace({
@@ -515,14 +538,21 @@ export class CompletionProvider {
             `[QueueManager Backfill] Populated from legacy path for ${input.filepath}`,
           );
         }
+        console.log(
+          `[Autocomplete IntelliJ Sequence] ${input.completionId} completion-provider.snippets legacy-path`,
+        );
       }
 
       // [zkdev] P1-7/8 + scope summary: enrich snippet payload with definitions & scope
-      await this.enrichSnippetPayload(
-        snippetPayload,
-        helper,
-        input.completionId,
-      );
+      // Skip in fast-path since import definitions are already in queue,
+      // and scopeSummary was already added above
+      if (!usedFastPath) {
+        await this.enrichSnippetPayload(
+          snippetPayload,
+          helper,
+          input.completionId,
+        );
+      }
 
       const workspaceDirs = helper.workspaceUris;
       const afterContextCollection = Date.now();

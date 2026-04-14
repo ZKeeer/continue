@@ -39,6 +39,9 @@ class ContinueInlineCompletionProvider : InlineCompletionProvider {
         val editor = request.editor
         val project = editor.project
             ?: return InlineCompletionSuggestion.Empty
+
+        project.service<CompletionService>().cancelAutocomplete()
+
         lastUuid = uuid()
         lastProject = project
 

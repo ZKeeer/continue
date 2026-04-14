@@ -203,10 +203,47 @@ export class IpcMessenger<
     });
   }
 
+  private _writeQueue: string[] = [];
+  private _writing = false;
+  private _drainWaiters: (() => void)[] = [];
+
+  private async _drain(): Promise<void> {
+    return new Promise<void>((resolve) => {
+      const canWrite = process.stdout?.write("");
+      if (canWrite !== false) {
+        resolve();
+        return;
+      }
+      this._drainWaiters.push(resolve);
+      process.stdout?.once("drain", () => {
+        const waiters = this._drainWaiters.splice(0);
+        waiters.forEach((w) => w());
+      });
+    });
+  }
+
+  private async _flushQueue() {
+    if (this._writing) return;
+    this._writing = true;
+    try {
+      while (this._writeQueue.length > 0) {
+        const data = this._writeQueue.shift()!;
+        const canWrite = process.stdout?.write(data);
+        if (canWrite === false) {
+          await this._drain();
+        }
+      }
+    } catch (e) {
+      console.error("[IpcMessenger] Write error:", e);
+    } finally {
+      this._writing = false;
+    }
+  }
+
   _sendMsg(msg: Message) {
-    const d = JSON.stringify(msg);
-    // console.log("[info] Sending message: ", d);
-    process.stdout?.write(d + "\r\n");
+    const d = JSON.stringify(msg) + "\r\n";
+    this._writeQueue.push(d);
+    void this._flushQueue();
   }
 }
 
@@ -240,8 +277,15 @@ export class CoreBinaryMessenger<
 
   _sendMsg(msg: Message) {
     console.log("[info] Sending message to core:", msg);
-    const d = JSON.stringify(msg);
-    this.subprocess.stdin.write(d + "\r\n");
+    const d = JSON.stringify(msg) + "\r\n";
+    try {
+      const canWrite = this.subprocess.stdin.write(d);
+      if (canWrite === false) {
+        this.subprocess.stdin.once("drain", () => {});
+      }
+    } catch (e) {
+      console.error("[CoreBinaryMessenger] Write error:", e);
+    }
   }
 }
 

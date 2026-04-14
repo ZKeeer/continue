@@ -4,7 +4,6 @@ import com.github.continuedev.continueintellijextension.error.ContinueSentryServ
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.Logger
 import kotlinx.coroutines.*
-import kotlinx.coroutines.channels.Channel
 import java.io.BufferedReader
 import java.io.IOException
 import java.io.InputStreamReader
@@ -17,7 +16,8 @@ class ContinueProcessHandler(
 ) {
     private val innerJob = Job()
     private val scope = CoroutineScope(parentScope.coroutineContext + innerJob)
-    private val pendingWrites = Channel<String>(Channel.UNLIMITED)
+    private val writeQueue = ArrayDeque<String>()
+    private val queueLock = Any()
     private val writer = OutputStreamWriter(process.output)
     private val reader = BufferedReader(InputStreamReader(process.input))
     private val log = Logger.getInstance(ContinueProcessHandler::class.java)
@@ -42,24 +42,64 @@ class ContinueProcessHandler(
             }
         }
         scope.launch(Dispatchers.IO) {
-            for (message in pendingWrites) {
-                try {
-                    log.debug("Write: $message")
-                    writer.write(message)
-                    writer.write("\r\n")
-                    writer.flush()
-                } catch (e: IOException) {
-                    log.warn(e)
+            while (isActive) {
+                val messages: List<String>
+                synchronized(queueLock) {
+                    while (writeQueue.isEmpty() && isActive) {
+                        (queueLock as java.lang.Object).wait(100)
+                    }
+                    messages = writeQueue.toList()
+                    writeQueue.clear()
+                }
+                for (message in messages) {
+                    try {
+                        log.debug("Write: $message")
+                        writer.write(message)
+                        writer.write("\r\n")
+                        writer.flush()
+                    } catch (e: IOException) {
+                        log.warn(e)
+                    }
                 }
             }
         }
     }
 
-    fun write(message: String) =
-        pendingWrites.trySend(message)
+    fun write(message: String) {
+        synchronized(queueLock) {
+            writeQueue.addLast(message)
+            (queueLock as java.lang.Object).notifyAll()
+        }
+    }
+
+    /**
+     * Only clear autocomplete-related messages from write queue.
+     * Other messages (e.g., config/readFile responses) must NOT be cleared,
+     * otherwise config loading will timeout.
+     */
+    fun clearAutocompleteWrites() {
+        synchronized(queueLock) {
+            val autocompletePatterns = listOf("autocomplete", "nextEdit")
+            val originalSize = writeQueue.size
+            val retained = writeQueue.filter { msg ->
+                // Keep messages that are NOT autocomplete-related
+                !autocompletePatterns.any { pattern -> msg.contains(pattern) }
+            }
+            val removed = originalSize - retained.size
+            if (removed > 0) {
+                writeQueue.clear()
+                retained.forEach { writeQueue.addLast(it) }
+                log.info("Cleared $removed autocomplete writes from queue (kept ${retained.size})")
+            }
+            (queueLock as java.lang.Object).notifyAll()
+        }
+    }
 
     fun close() {
         innerJob.cancel()
+        synchronized(queueLock) {
+            (queueLock as java.lang.Object).notifyAll()
+        }
         scope.launch(Dispatchers.IO) {
             reader.close()
             writer.close()

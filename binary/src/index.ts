@@ -19,16 +19,21 @@ const program = new Command();
 program.action(async () => {
   try {
     let messenger: IMessenger<ToCoreProtocol, FromCoreProtocol>;
-    if (process.env.CONTINUE_DEVELOPMENT === "true") {
+
+    // 使用 IPC (stdin/stdout) 模式 + 异步写入队列解决 Windows 阻塞问题
+    // TCP 模式已回退：abort 机制 + IpcMessenger 异步写入可解决根本问题
+    const useTcp = false;
+
+    if (useTcp) {
+      setupCoreLogging();
       messenger = new TcpMessenger<ToCoreProtocol, FromCoreProtocol>();
-      console.log("[binary] Waiting for connection");
+      console.log("[binary] Waiting for TCP connection");
       await (
         messenger as TcpMessenger<ToCoreProtocol, FromCoreProtocol>
       ).awaitConnection();
-      console.log("[binary] Connected");
+      console.log("[binary] Connected via TCP");
     } else {
       setupCoreLogging();
-      // await setupCa();
       messenger = new IpcMessenger<ToCoreProtocol, FromCoreProtocol>();
     }
     const ide = new IpcIde(messenger);

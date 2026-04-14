@@ -116,6 +116,8 @@ class ContinueInlineCompletionProviderTest : BasePlatformTestCase() {
 
                 override fun acceptAutocomplete(uuid: String?) =
                     accept(uuid)
+
+                override fun cancelAutocomplete() {}
             },
             testRootDisposable
         )

@@ -7,4 +7,6 @@ interface CompletionService {
 
     fun acceptAutocomplete(uuid: String?)
 
+    fun cancelAutocomplete()
+
 }

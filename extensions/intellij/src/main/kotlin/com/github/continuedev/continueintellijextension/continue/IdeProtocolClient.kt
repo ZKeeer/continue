@@ -26,6 +26,7 @@ import com.intellij.openapi.wm.ToolWindowManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import java.awt.Toolkit
 import java.awt.datatransfer.StringSelection
@@ -47,14 +48,33 @@ class IdeProtocolClient(
      * See this thread for details: https://github.com/continuedev/continue/issues/4098#issuecomment-2854865310
      */
     @OptIn(ExperimentalCoroutinesApi::class)
-    private val limitedDispatcher = Dispatchers.IO.limitedParallelism(4)
+    private val limitedDispatcher = Dispatchers.IO.limitedParallelism(8)
+
+    private val pendingRequests = java.util.concurrent.ConcurrentHashMap<String, Job>()
+    // [zkdev] ONLY globally unique requests can be deduplicated by messageType.
+    // Requests with parameters (readFile, listDir, etc.) must NOT be here,
+    // otherwise concurrent requests for different files will cancel each other!
+    private val dedupMessageTypes = setOf(
+        "getWorkspaceDirs", "getIdeInfo",
+        "getClipboardText", "getOpenFiles", "getCurrentFile",
+        "isTelemetryEnabled", "isWorkspaceRemote", "getUniqueId"
+    )
 
     fun handleMessage(msg: String, respond: (Any?) -> Unit) {
-        coroutineScope.launch(limitedDispatcher) {
-            val message = Gson().fromJson(msg, Message::class.java)
-            val messageType = message.messageType
-            val dataElement = message.data
+        val message = Gson().fromJson(msg, Message::class.java)
+        val messageType = message.messageType
+        val messageId = message.messageId
+        val dataElement = message.data
 
+        if (messageType in dedupMessageTypes) {
+            val existing = pendingRequests[messageType]
+            if (existing != null && existing.isActive) {
+                existing.cancel()
+                pendingRequests.remove(messageType)
+            }
+        }
+
+        val job = coroutineScope.launch(limitedDispatcher) {
             try {
                 when (messageType) {
                     "toggleDevTools" -> {
@@ -197,6 +217,11 @@ class IdeProtocolClient(
                     "isWorkspaceRemote" -> {
                         val isRemote = ide.isWorkspaceRemote()
                         respond(isRemote)
+                    }
+
+                    "subprocess" -> {
+                        // subprocess 消息不需要特殊处理，直接返回 null
+                        respond(null)
                     }
 
                     "saveFile" -> {
@@ -477,8 +502,25 @@ class IdeProtocolClient(
                 val exceptionMessage = "Error handling message of type $messageType: $exception"
                 service<ContinueSentryService>().report(exception, exceptionMessage)
                 ide.showToast(ToastType.ERROR, exceptionMessage)
+            } finally {
+                if (messageType in dedupMessageTypes) {
+                    pendingRequests.remove(messageType)
+                }
             }
         }
+
+        if (messageType in dedupMessageTypes) {
+            pendingRequests[messageType] = job
+        }
+    }
+
+    fun cancelPendingIdeRequests() {
+        for ((key, job) in pendingRequests) {
+            if (job.isActive) {
+                job.cancel()
+            }
+        }
+        pendingRequests.clear()
     }
 
     fun sendAcceptRejectDiff(accepted: Boolean, stepIndex: Int) {

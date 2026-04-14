@@ -6,27 +6,44 @@ import com.github.continuedev.continueintellijextension.utils.castNestedOrNull
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.time.Duration.Companion.milliseconds
 
 @Service(Service.Level.PROJECT)
 class ContinueCompletionService(private val project: Project) : CompletionService {
+    private var lastAutocompleteMessageId: String? = null
 
     override suspend fun getAutocomplete(uuid: String, url: String, line: Int, column: Int): String? {
         val requestInput = getCompletionInput(uuid, url, line, column)
+        val messageId = "autocomplete-$uuid"
+        lastAutocompleteMessageId = messageId
         val modelTimeout = project.service<ProfileInfoService>().fetchModelTimeoutOrNull() ?: 1000.0
-        return withTimeoutOrNull(modelTimeout.milliseconds * 3) {
-            suspendCancellableCoroutine { continuation ->
-                project.service<ContinuePluginService>().coreMessenger?.request(
-                    "autocomplete/complete",
-                    requestInput,
-                    null
-                ) {
-                    val content = it.castNestedOrNull<List<String>>("content")?.firstOrNull() ?: ""
-                    continuation.resumeWith(Result.success(content))
+        return try {
+            withTimeoutOrNull(modelTimeout.milliseconds * 3) {
+                suspendCancellableCoroutine { continuation ->
+                    project.service<ContinuePluginService>().coreMessenger?.request(
+                        "autocomplete/complete",
+                        requestInput,
+                        messageId
+                    ) {
+                        val content = it.castNestedOrNull<List<String>>("content")?.firstOrNull() ?: ""
+                        if (continuation.isActive) {
+                            continuation.resumeWith(Result.success(content))
+                        }
+                    }
+                    continuation.invokeOnCancellation {
+                        sendAbort(messageId)
+                    }
                 }
+            } ?: run {
+                sendAbort(messageId)
+                null
             }
+        } catch (e: CancellationException) {
+            sendAbort(messageId)
+            null
         }
     }
 
@@ -34,6 +51,27 @@ class ContinueCompletionService(private val project: Project) : CompletionServic
         project.service<ContinuePluginService>().coreMessenger?.request(
             "autocomplete/accept",
             mapOf("completionId" to uuid),
+            null
+        ) {}
+    }
+
+    override fun cancelAutocomplete() {
+        val msgId = lastAutocompleteMessageId
+        if (msgId != null) {
+            sendAbort(msgId)
+            lastAutocompleteMessageId = null
+        }
+        project.service<ContinuePluginService>().coreMessenger?.request(
+            "autocomplete/cancel",
+            null,
+            null
+        ) {}
+    }
+
+    private fun sendAbort(messageId: String) {
+        project.service<ContinuePluginService>().coreMessenger?.request(
+            "abort",
+            mapOf("messageId" to messageId),
             null
         ) {}
     }

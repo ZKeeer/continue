@@ -1,7 +1,7 @@
 import { v4 as uuidv4 } from "uuid";
 
 /**
- * [zkdev] Fixed debouncer: uses max(120ms, configDelay) as a pure debounce.
+ * [zkdev] Fixed debouncer: uses max(60ms, configDelay) as a pure debounce.
  *
  * With CompletionStreamer latest-only epoch control handling concurrent requests,
  * debounce only needs to merge millisecond-level consecutive keystrokes.
@@ -54,7 +54,7 @@ export class AutocompleteDebouncer {
   // --- End of preserved adaptive logic ---
 
   async delayAndShouldDebounce(debounceDelay: number): Promise<boolean> {
-    const fixedDelay = Math.max(120, debounceDelay);
+    const fixedDelay = Math.max(60, debounceDelay);
 
     // Generate a unique ID for this request
     const requestId = uuidv4();
