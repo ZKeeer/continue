@@ -85,7 +85,7 @@ export const streamNormalInput = createAsyncThunk<
   async (
     { legacySlashCommandData, depth = 0 },
     { dispatch, extra, getState },
-  ) => {
+  ): Promise<void> => {
     if (process.env.NODE_ENV === "test" && depth > 50) {
       const message = `Max stream depth of ${50} reached in test`;
       console.error(message, JSON.stringify(getState(), null, 2));
@@ -218,9 +218,10 @@ export const streamNormalInput = createAsyncThunk<
         await dispatch(loadSession({ sessionId, saveCurrentSession: false }));
         // Retry with compacted history
         dispatch(setInactive());
-        return dispatch(
+        await dispatch(
           streamNormalInput({ legacySlashCommandData, depth: depth + 1 }),
         );
+        return;
       }
     }
 
