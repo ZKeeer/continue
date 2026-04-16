@@ -3,6 +3,7 @@ package com.github.continuedev.continueintellijextension.`continue`
 import com.github.continuedev.continueintellijextension.browser.ContinueBrowserService.Companion.getBrowser
 import com.github.continuedev.continueintellijextension.constants.MessageTypes
 import com.github.continuedev.continueintellijextension.`continue`.process.ContinueBinaryProcess
+import com.github.continuedev.continueintellijextension.`continue`.process.ContinueNuProcess
 import com.github.continuedev.continueintellijextension.`continue`.process.ContinueProcess
 import com.github.continuedev.continueintellijextension.`continue`.process.ContinueProcessHandler
 import com.github.continuedev.continueintellijextension.`continue`.process.ContinueSocketProcess
@@ -14,6 +15,11 @@ import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
 import kotlinx.coroutines.CoroutineScope
+
+enum class IpcMode {
+    NUPROCESS,  // Default: NuProcess with IOCP/epoll/kqueue
+    TCP         // TCP loopback with dynamic port negotiation
+}
 
 class CoreMessenger(
     private val project: Project,
@@ -53,16 +59,22 @@ class CoreMessenger(
     }
 
     private fun startContinueProcess(): ContinueProcessHandler {
-        // 使用 IPC (stdin/stdout) 模式 + abort 机制解决 Windows 阻塞问题
-        // TCP 模式已回退：请求队列清理 + abort 信号传播可解决根本问题
-        val isTcp = false
-        
-        val bp = ContinueBinaryProcess(onUnexpectedExit)
-        binaryProcess = bp
-        val continueProcess: ContinueProcess = if (isTcp) {
-            ContinueSocketProcess.connectWithRetry()
-        } else {
-            bp
+        val ipcMode = IpcMode.valueOf(
+            System.getenv("CONTINUE_IPC_MODE")?.uppercase() ?: "NUPROCESS"
+        )
+        log.info("Starting Continue process with IPC mode: $ipcMode")
+
+        val continueProcess: ContinueProcess = when (ipcMode) {
+            IpcMode.TCP -> {
+                val bp = ContinueBinaryProcess(onUnexpectedExit, useTcp = true)
+                binaryProcess = bp
+                val port = bp.tcpPort
+                    ?: throw IllegalStateException("Failed to get TCP port from core binary")
+                ContinueSocketProcess.connectWithRetry(port)
+            }
+            IpcMode.NUPROCESS -> {
+                ContinueNuProcess(onUnexpectedExit)
+            }
         }
         return ContinueProcessHandler(coroutineScope, continueProcess, ::handleMessage)
     }

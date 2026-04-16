@@ -20,9 +20,8 @@ program.action(async () => {
   try {
     let messenger: IMessenger<ToCoreProtocol, FromCoreProtocol>;
 
-    // 使用 IPC (stdin/stdout) 模式 + 异步写入队列解决 Windows 阻塞问题
-    // TCP 模式已回退：abort 机制 + IpcMessenger 异步写入可解决根本问题
-    const useTcp = false;
+    // IPC mode: USE_TCP env var controls TCP vs stdin/stdout
+    const useTcp = process.env.USE_TCP === "true";
 
     if (useTcp) {
       setupCoreLogging();

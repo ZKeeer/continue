@@ -19,7 +19,7 @@ class ContinueProcessHandler(
     private val writeQueue = ArrayDeque<String>()
     private val queueLock = Any()
     private val writer = OutputStreamWriter(process.output)
-    private val reader = BufferedReader(InputStreamReader(process.input))
+    private val reader = BufferedReader(InputStreamReader(process.input), 262144) // 256KB buffer
     private val log = Logger.getInstance(ContinueProcessHandler::class.java)
 
     init {

@@ -7,6 +7,7 @@ import com.github.continuedev.continueintellijextension.utils.OS
 import com.github.continuedev.continueintellijextension.utils.getContinueBinaryPath
 import com.github.continuedev.continueintellijextension.utils.getOS
 import com.intellij.openapi.components.service
+import com.intellij.openapi.diagnostic.Logger
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import java.io.File
@@ -17,12 +18,17 @@ import java.nio.file.Paths
 import java.nio.file.attribute.PosixFilePermission
 
 class ContinueBinaryProcess(
-    private val onUnexpectedExit: () -> Unit
+    private val onUnexpectedExit: () -> Unit,
+    private val useTcp: Boolean = false
 ) : ContinueProcess {
 
     private val process = startBinaryProcess()
     override val input: InputStream = process.inputStream
     override val output: OutputStream = process.outputStream
+
+    /** In TCP mode, read the port number from binary's stderr "TCP_PORT:<port>" line. */
+    var tcpPort: Int? = null
+        private set
 
     override fun close() =
         process.destroy()
@@ -35,10 +41,45 @@ class ContinueBinaryProcess(
 
         val builder = ProcessBuilder(path)
         builder.environment() += ProxySettings.getSettings().toContinueEnvVars()
-        return builder
+        if (useTcp) {
+            builder.environment()["USE_TCP"] = "true"
+        }
+        val proc = builder
             .directory(File(path).parentFile)
             .start()
             .apply { onExit().thenRun(onUnexpectedExit).thenRun(::reportErrorTelemetry) }
+
+        if (useTcp) {
+            // Read TCP port from binary stderr (format: "TCP_PORT:<port>")
+            tcpPort = readTcpPort(proc)
+        }
+        return proc
+    }
+
+    private fun readTcpPort(proc: Process): Int? {
+        val log = Logger.getInstance(ContinueBinaryProcess::class.java)
+        try {
+            val reader = proc.errorStream.bufferedReader()
+            val deadline = System.currentTimeMillis() + 10_000 // 10s timeout
+            while (System.currentTimeMillis() < deadline) {
+                if (!reader.ready()) {
+                    Thread.sleep(50)
+                    continue
+                }
+                val line = reader.readLine() ?: break
+                if (line.startsWith("TCP_PORT:")) {
+                    val port = line.substringAfter("TCP_PORT:").trim().toIntOrNull()
+                    if (port != null) {
+                        log.info("Core TCP server listening on port $port")
+                        return port
+                    }
+                }
+            }
+            log.warn("Timed out waiting for TCP port from core binary")
+        } catch (e: Exception) {
+            log.warn("Error reading TCP port from core binary", e)
+        }
+        return null
     }
 
     private fun reportErrorTelemetry() {

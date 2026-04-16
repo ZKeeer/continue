@@ -58,7 +58,7 @@ class Debouncer(
     // --- End of preserved adaptive logic ---
 
     fun debounce(action: suspend () -> Unit) {
-        val fixedDelay = maxOf(120L, configDelay)
+        val fixedDelay = maxOf(120L, minOf(configDelay, 200L))
         val requestId = UUID.randomUUID().toString()
         currentRequestId = requestId
 

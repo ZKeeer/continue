@@ -8,7 +8,7 @@ export class TcpMessenger<
   FromProtocol extends IProtocol,
 > implements IMessenger<ToProtocol, FromProtocol>
 {
-  private port: number = 3000;
+  private port: number = 0; // 0 = OS assigns a free port
   private host: string = "127.0.0.1";
   private socket: net.Socket | null = null;
   private server: net.Server | null = null;
@@ -35,18 +35,17 @@ export class TcpMessenger<
     });
 
     this.server.on("error", (err: any) => {
-      console.error(`TCP server error on port ${this.port}:`, err);
-      // 尝试使用备用端口
-      if (err.code === "EADDRINUSE") {
-        console.log(`Port ${this.port} is in use, trying ${this.port + 1}`);
-        this.port += 1;
-        this.server?.listen(this.port, this.host);
-      } else {
-        process.exit(1);
-      }
+      console.error(`TCP server error:`, err);
+      process.exit(1);
     });
 
-    this.server.listen(this.port, this.host, () => {
+    this.server.listen(0, this.host, () => {
+      const addr = this.server?.address();
+      if (addr && typeof addr !== "string") {
+        this.port = addr.port;
+      }
+      // Signal the port to the parent process via stderr
+      process.stderr.write(`TCP_PORT:${this.port}\n`);
       console.log(`Server listening on port ${this.port}`);
     });
   }

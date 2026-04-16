@@ -54,7 +54,7 @@ export class AutocompleteDebouncer {
   // --- End of preserved adaptive logic ---
 
   async delayAndShouldDebounce(debounceDelay: number): Promise<boolean> {
-    const fixedDelay = Math.max(60, debounceDelay);
+    const fixedDelay = Math.max(60, Math.min(debounceDelay, 200));
 
     // Generate a unique ID for this request
     const requestId = uuidv4();

@@ -61,11 +61,11 @@ class ContinueCompletionService(private val project: Project) : CompletionServic
             sendAbort(msgId)
             lastAutocompleteMessageId = null
         }
-        project.service<ContinuePluginService>().coreMessenger?.request(
-            "autocomplete/cancel",
-            null,
-            null
-        ) {}
+        // [zkdev] Plan B: Only abort by messageId, do NOT send autocomplete/cancel.
+        // autocomplete/cancel calls CompletionProvider.cancel() which clears ALL
+        // abort controllers (including cache/prefetch), hurting cache hit rates.
+        // By only aborting the specific messageId, Core stops LLM + IPC for that
+        // request but preserves internal caches for subsequent completions.
     }
 
     private fun sendAbort(messageId: String) {
