@@ -18,15 +18,81 @@ class ContinueProcessHandler(
     private val scope = CoroutineScope(parentScope.coroutineContext + innerJob)
     private val writeQueue = ArrayDeque<String>()
     private val queueLock = Any()
-    private val writer = OutputStreamWriter(process.output)
-    private val reader = BufferedReader(InputStreamReader(process.input), 262144) // 256KB buffer
     private val log = Logger.getInstance(ContinueProcessHandler::class.java)
 
+    // Stream-based I/O — only created for non-NuProcess
+    private val writer: OutputStreamWriter?
+    private val reader: BufferedReader?
+
     init {
+        if (process is ContinueNuProcess) {
+            writer = null
+            reader = null
+            initDirectIO(process, handleMessage)
+        } else {
+            writer = OutputStreamWriter(process.output)
+            reader = BufferedReader(InputStreamReader(process.input), 262144) // 256KB buffer
+            initStreamIO(handleMessage)
+        }
+    }
+
+    /**
+     * NuProcess optimized path — no PipedStream, no BufferedReader/OutputStreamWriter.
+     * Read: take complete lines from messageQueue (parsed in onStdout callback)
+     * Write: batch all queued messages into a single writeStdin call
+     */
+    private fun initDirectIO(nuProcess: ContinueNuProcess, handleMessage: (String) -> Unit) {
+        // Reader coroutine: take from LinkedBlockingQueue (blocks until line available)
         scope.launch(Dispatchers.IO) {
             try {
                 while (isActive) {
-                    val line = reader.readLine()
+                    val line = nuProcess.messageQueue.take()
+                    if (line.isNotEmpty()) {
+                        try {
+                            log.debug("Handle: $line")
+                            handleMessage(line)
+                        } catch (e: Exception) {
+                            service<ContinueSentryService>().report(e, "Error handling message: $line")
+                        }
+                    }
+                }
+            } catch (_: InterruptedException) {
+                // Normal shutdown — coroutine cancellation interrupts take()
+            }
+        }
+
+        // Writer coroutine: batch all queued messages → single writeMessages call
+        scope.launch(Dispatchers.IO) {
+            while (isActive) {
+                val messages: List<String>
+                synchronized(queueLock) {
+                    while (writeQueue.isEmpty() && isActive) {
+                        (queueLock as java.lang.Object).wait(100)
+                    }
+                    messages = writeQueue.toList()
+                    writeQueue.clear()
+                }
+                if (messages.isNotEmpty()) {
+                    try {
+                        log.debug("Batch write ${messages.size} messages")
+                        nuProcess.writeMessages(messages)
+                    } catch (e: Exception) {
+                        log.warn("Write error", e)
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Traditional stream path — for ContinueBinaryProcess / ContinueSocketProcess.
+     * Uses BufferedReader for reads, OutputStreamWriter for writes.
+     */
+    private fun initStreamIO(handleMessage: (String) -> Unit) {
+        scope.launch(Dispatchers.IO) {
+            try {
+                while (isActive) {
+                    val line = reader!!.readLine()
                     if (line != null && line.isNotEmpty()) {
                         try {
                             log.debug("Handle: $line")
@@ -34,8 +100,9 @@ class ContinueProcessHandler(
                         } catch (e: Exception) {
                             service<ContinueSentryService>().report(e, "Error handling message: $line")
                         }
-                    } else
-                        delay(100)
+                    } else if (line == null) {
+                        break // EOF — process closed
+                    }
                 }
             } catch (e: IOException) {
                 service<ContinueSentryService>().report(e)
@@ -54,7 +121,7 @@ class ContinueProcessHandler(
                 for (message in messages) {
                     try {
                         log.debug("Write: $message")
-                        writer.write(message)
+                        writer!!.write(message)
                         writer.write("\r\n")
                         writer.flush()
                     } catch (e: IOException) {
@@ -101,8 +168,8 @@ class ContinueProcessHandler(
             (queueLock as java.lang.Object).notifyAll()
         }
         scope.launch(Dispatchers.IO) {
-            reader.close()
-            writer.close()
+            reader?.close()
+            writer?.close()
             process.close()
         }
     }

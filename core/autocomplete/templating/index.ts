@@ -245,6 +245,7 @@ export function renderPromptWithTokenLimit({
   suffix: string;
   completionOptions: Partial<CompletionOptions> | undefined;
 } {
+  const tPrepare0 = Date.now();
   const {
     prefix: initialPrefix,
     suffix: initialSuffix,
@@ -254,6 +255,7 @@ export function renderPromptWithTokenLimit({
     completionOptions,
     snippets,
   } = preparePromptContext({ snippetPayload, workspaceDirs, helper });
+  const tPrepare1 = Date.now();
 
   // We'll mutate prefix/suffix during pruning, so copy them.
   let prefix = initialPrefix;
@@ -273,8 +275,10 @@ export function renderPromptWithTokenLimit({
     workspaceDirs,
     reponame,
   );
+  const tBuild1 = Date.now();
 
   // Truncate prefix and suffix if prompt tokens exceed maxAllowedPromptTokens
+  let pruned = false;
   if (llm) {
     const prune = pruneLength(llm, prompt);
     if (prune > 0) {
@@ -310,8 +314,10 @@ export function renderPromptWithTokenLimit({
         workspaceDirs,
         reponame,
       ));
+      pruned = true;
     }
   }
+  const tPrune1 = Date.now();
 
   const stopTokens = getStopTokens(
     completionOptions,
@@ -322,9 +328,21 @@ export function renderPromptWithTokenLimit({
   const estimatedPromptTokens = estimateTokensFast(prompt);
   const estimatedPrefixTokens = estimateTokensFast(compiledPrefix);
   const estimatedSuffixTokens = estimateTokensFast(compiledSuffix);
+  const tEstimate1 = Date.now();
   const remainingPromptBudget = Math.max(
     0,
     helper.options.maxPromptTokens - estimatedPromptTokens,
+  );
+
+  // [zkdev] Sub-timing breakdown for prompt_build diagnosis
+  console.log(
+    `[Autocomplete PromptBuild SubTimings] ` +
+      `prepareContextMs=${tPrepare1 - tPrepare0} ` +
+      `buildPromptMs=${tBuild1 - tPrepare1} ` +
+      `pruneMs=${tPrune1 - tBuild1} ` +
+      `pruned=${pruned} ` +
+      `estimateMs=${tEstimate1 - tPrune1} ` +
+      `totalMs=${tEstimate1 - tPrepare0}`,
   );
 
   console.log(
@@ -339,12 +357,19 @@ export function renderPromptWithTokenLimit({
   );
 
   // [zkdev] Log prompt composition separately so token usage and body are easier to scan.
+  // Performance fix: only dump full prompt body when CONTINUE_DEBUG_AUTOCOMPLETE is set.
+  // The full prompt can be 10-20KB; fs.appendFileSync (logging) on Windows with antivirus
+  // takes 30-100ms per write, directly inflating promptBuildMs.
+  const debugAutocomplete = process.env.CONTINUE_DEBUG_AUTOCOMPLETE === "true";
   console.log(
     `[Autocomplete Prompt Structure] model=${helper.modelName} file=${helper.filepath} ` +
       `snippetCount=${snippets.length} ` +
       `prefixLen=${compiledPrefix.length} ` +
       `suffixLen=${compiledSuffix.length} ` +
-      `promptLen=${prompt.length}\n--- PROMPT START ---\n${prompt}\n--- PROMPT END ---`,
+      `promptLen=${prompt.length}` +
+      (debugAutocomplete
+        ? `\n--- PROMPT START ---\n${prompt}\n--- PROMPT END ---`
+        : ""),
   );
 
   return {

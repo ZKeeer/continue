@@ -28,11 +28,11 @@ class CoreMessenger(
     private val onUnexpectedExit: () -> Unit,
     private val gsonService: GsonService = service<GsonService>(),
 ) {
+    private val log = Logger.getInstance(CoreMessenger::class.java.simpleName)
     private val gson = gsonService.gson
     private val responseListeners = mutableMapOf<String, (Any?) -> Unit>()
     private var binaryProcess: ContinueBinaryProcess? = null
     private var process = startContinueProcess()
-    private val log = Logger.getInstance(CoreMessenger::class.java.simpleName)
 
     private val autocompletePrefixes = listOf("autocomplete-", "nextEdit-")
     private val ideRequestPrefixes = listOf("readFile", "getWorkspace", "getDocument", "getDiff", "getRepo", "getIde", "listDir", "getFile", "getGit", "getBranch")
@@ -73,7 +73,15 @@ class CoreMessenger(
                 ContinueSocketProcess.connectWithRetry(port)
             }
             IpcMode.NUPROCESS -> {
-                ContinueNuProcess(onUnexpectedExit)
+                try {
+                    log.info("Attempting to start Core with NuProcess")
+                    ContinueNuProcess(onUnexpectedExit)
+                } catch (e: Exception) {
+                    log.warn("NuProcess failed, falling back to standard pipe IPC", e)
+                    val bp = ContinueBinaryProcess(onUnexpectedExit)
+                    binaryProcess = bp
+                    bp
+                }
             }
         }
         return ContinueProcessHandler(coroutineScope, continueProcess, ::handleMessage)

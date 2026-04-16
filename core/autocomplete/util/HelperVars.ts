@@ -71,6 +71,11 @@ function computeScopeKey(
   return parts.join(">");
 }
 
+// [zkdev] Module-level cache for getWorkspaceDirs() result.
+// Workspace dirs rarely change during a session. Caching eliminates one IPC
+// round-trip (~20-50ms) per autocomplete request.
+let cachedWorkspaceDirs: string[] | undefined;
+
 /**
  * A collection of variables that are often accessed throughout the autocomplete pipeline
  * It's noisy to re-calculate all the time or inject them into each function
@@ -105,7 +110,13 @@ export class HelperVars {
     }
 
     const t0 = Date.now();
-    this.workspaceUris = await this.ide.getWorkspaceDirs();
+    // [zkdev] Use cached workspace dirs to avoid IPC round-trip on every request
+    if (cachedWorkspaceDirs) {
+      this.workspaceUris = cachedWorkspaceDirs;
+    } else {
+      this.workspaceUris = await this.ide.getWorkspaceDirs();
+      cachedWorkspaceDirs = this.workspaceUris;
+    }
     const t1 = Date.now();
 
     this._fileContents =

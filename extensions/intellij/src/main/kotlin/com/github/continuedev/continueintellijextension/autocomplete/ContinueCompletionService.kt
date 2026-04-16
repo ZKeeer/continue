@@ -15,8 +15,8 @@ import kotlin.time.Duration.Companion.milliseconds
 class ContinueCompletionService(private val project: Project) : CompletionService {
     private var lastAutocompleteMessageId: String? = null
 
-    override suspend fun getAutocomplete(uuid: String, url: String, line: Int, column: Int): String? {
-        val requestInput = getCompletionInput(uuid, url, line, column)
+    override suspend fun getAutocomplete(uuid: String, url: String, line: Int, column: Int, fileContents: String?): String? {
+        val requestInput = getCompletionInput(uuid, url, line, column, fileContents)
         val messageId = "autocomplete-$uuid"
         lastAutocompleteMessageId = messageId
         val modelTimeout = project.service<ProfileInfoService>().fetchModelTimeoutOrNull() ?: 1000.0
@@ -76,13 +76,17 @@ class ContinueCompletionService(private val project: Project) : CompletionServic
         ) {}
     }
 
-    private fun getCompletionInput(uuid: String, filepath: String, line: Int, character: Int): Map<String, *> = mapOf(
+    // [zkdev] Performance fix: pass manuallyPassFileContents to avoid readFile IPC round-trip.
+    // IntelliJ already has the file contents in editor.document.text — sending it inline
+    // eliminates a 20-50ms IPC call in HelperVars.init() on every autocomplete request.
+    private fun getCompletionInput(uuid: String, filepath: String, line: Int, character: Int, fileContents: String?): Map<String, *> = mapOf(
         "completionId" to uuid,
         "filepath" to filepath,
         "pos" to mapOf(
             "line" to line,
             "character" to character
         ),
+        "manuallyPassFileContents" to (fileContents ?: ""),
         "clipboardText" to "",
         "recentlyEditedRanges" to emptyList<Any>(),
         "recentlyVisitedRanges" to emptyList<Any>(),

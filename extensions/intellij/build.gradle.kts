@@ -48,7 +48,11 @@ dependencies {
         testFramework(TestFrameworkType.Starter, "243.21565.193", configurationName = "testIntegrationImplementation")
     }
     implementation("com.posthog.java:posthog:1.2.0")
-    implementation("com.zaxxer:nuprocess:2.0.6")
+    implementation("com.zaxxer:nuprocess:2.0.6") {
+        // Exclude JNA — IntelliJ platform bundles its own JNA.
+        // Bundling a second copy causes ClassLoader conflicts and NuProcess fails to start processes.
+        exclude(group = "net.java.dev.jna")
+    }
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("io.mockk:mockk:1.14.2") {
