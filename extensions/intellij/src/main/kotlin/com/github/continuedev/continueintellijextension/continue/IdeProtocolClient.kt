@@ -502,6 +502,8 @@ class IdeProtocolClient(
                 val exceptionMessage = "Error handling message of type $messageType: $exception"
                 service<ContinueSentryService>().report(exception, exceptionMessage)
                 ide.showToast(ToastType.ERROR, exceptionMessage)
+                // Always respond to avoid leaving Core hanging on unanswered requests
+                respond(null)
             } finally {
                 if (messageType in dedupMessageTypes) {
                     pendingRequests.remove(messageType)

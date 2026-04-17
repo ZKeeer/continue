@@ -63,6 +63,11 @@ export const PROVIDER_TOOL_SUPPORT: Record<string, (model: string) => boolean> =
         return true;
       }
 
+      // Qwen models served via sglang/vLLM with OpenAI-compatible API
+      if (lower.includes("qwen")) {
+        return true;
+      }
+
       // firworks-ai https://docs.fireworks.ai/guides/function-calling
       if (model.startsWith("accounts/fireworks/models/")) {
         switch (model.substring(26)) {

@@ -61,6 +61,19 @@ export function constructMessages(
 
   const historyCopy = [...filteredHistory];
 
+  // Count thinking messages from the end to only keep the most recent N rounds
+  const MAX_THINKING_ROUNDS = 2;
+  let thinkingRoundCount = 0;
+  const thinkingKeepSet = new Set<number>();
+  for (let i = historyCopy.length - 1; i >= 0; i--) {
+    if (historyCopy[i].message.role === "thinking") {
+      thinkingRoundCount++;
+      if (thinkingRoundCount <= MAX_THINKING_ROUNDS) {
+        thinkingKeepSet.add(i);
+      }
+    }
+  }
+
   const msgs: MessageWithContextItems[] = [];
   let appliedRuleIndex = -1;
   let index = -1;
@@ -98,10 +111,13 @@ export function constructMessages(
         },
       });
     } else if (item.message.role === "thinking") {
-      msgs.push({
-        ctxItems: item.contextItems,
-        message: item.message,
-      });
+      // Only keep the most recent N thinking rounds to save context tokens
+      if (thinkingKeepSet.has(index)) {
+        msgs.push({
+          ctxItems: item.contextItems,
+          message: item.message,
+        });
+      }
     } else if (item.message.role === "assistant") {
       // When using system message tools, convert tool calls/states to text content
       if (item.toolCallStates?.length && useSystemToolsFramework) {

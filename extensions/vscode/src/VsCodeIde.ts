@@ -8,9 +8,9 @@ import * as URI from "uri-js";
 import * as vscode from "vscode";
 
 import {
-  executeGotoProvider,
-  executeSignatureHelpProvider,
-  executeSymbolProvider,
+    executeGotoProvider,
+    executeSignatureHelpProvider,
+    executeSymbolProvider,
 } from "./autocomplete/lsp";
 import { Repository } from "./otherExtensions/git";
 import { SecretStorage } from "./stubs/SecretStorage";
@@ -20,19 +20,19 @@ import { getExtensionUri, openEditorAndRevealRange } from "./util/vscode";
 import { VsCodeWebviewProtocol } from "./webviewProtocol";
 
 import type {
-  DocumentSymbol,
-  FileStatsMap,
-  FileType,
-  IDE,
-  IdeInfo,
-  IdeSettings,
-  IndexTag,
-  Location,
-  Problem,
-  RangeInFile,
-  SignatureHelp,
-  TerminalOptions,
-  Thread,
+    DocumentSymbol,
+    FileStatsMap,
+    FileType,
+    IDE,
+    IdeInfo,
+    IdeSettings,
+    IndexTag,
+    Location,
+    Problem,
+    RangeInFile,
+    SignatureHelp,
+    TerminalOptions,
+    Thread,
 } from "core";
 
 class VsCodeIde implements IDE {
@@ -360,6 +360,16 @@ class VsCodeIde implements IDE {
   }
 
   private static MAX_BYTES = 100000;
+  private static READ_FILE_TIMEOUT_MS = 30_000;
+
+  private withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+    return Promise.race([
+      promise,
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error(`Timeout after ${ms}ms: ${label}`)), ms),
+      ),
+    ]);
+  }
 
   async readFile(fileUri: string): Promise<string> {
     try {
@@ -389,12 +399,20 @@ class VsCodeIde implements IDE {
         return openTextDocument.getText();
       }
 
-      const fileStats = await this.ideUtils.stat(uri);
+      const fileStats = await this.withTimeout(
+        this.ideUtils.stat(uri),
+        VsCodeIde.READ_FILE_TIMEOUT_MS,
+        `stat ${fileUri}`,
+      );
       if (fileStats === null || fileStats.size > 10 * VsCodeIde.MAX_BYTES) {
         return "";
       }
 
-      const bytes = await this.ideUtils.readFile(uri);
+      const bytes = await this.withTimeout(
+        this.ideUtils.readFile(uri),
+        VsCodeIde.READ_FILE_TIMEOUT_MS,
+        `readFile ${fileUri}`,
+      );
       if (bytes === null) {
         return "";
       }
@@ -404,6 +422,7 @@ class VsCodeIde implements IDE {
       const contents = new TextDecoder().decode(truncatedBytes);
       return contents;
     } catch (e) {
+      console.warn(`[VsCodeIde.readFile] Failed for ${fileUri}:`, e);
       return "";
     }
   }
@@ -705,3 +724,4 @@ class VsCodeIde implements IDE {
 }
 
 export { VsCodeIde };
+

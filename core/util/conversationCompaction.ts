@@ -9,9 +9,31 @@ export interface CompactionParams {
   currentModel: ILLM;
 }
 
+// Maximum characters for a single tool result message content in compaction input.
+// Large file reads / terminal outputs are truncated to save tokens for the summary model.
+const MAX_TOOL_CONTENT_CHARS_FOR_COMPACTION = 2000;
+
+/**
+ * Truncate tool result content for compaction to avoid wasting summary model tokens
+ * on large file contents or verbose terminal outputs.
+ */
+function truncateForCompaction(content: string): string {
+  if (content.length <= MAX_TOOL_CONTENT_CHARS_FOR_COMPACTION) {
+    return content;
+  }
+  return (
+    content.substring(0, MAX_TOOL_CONTENT_CHARS_FOR_COMPACTION) +
+    `\n...[truncated, ${content.length - MAX_TOOL_CONTENT_CHARS_FOR_COMPACTION} chars omitted]`
+  );
+}
+
 /**
  * Compacts conversation history up to a specified index by generating a summary.
  * This helper function extracts the compaction logic from the main core handler.
+ *
+ * Optimizations applied before sending to summary model:
+ * - Thinking messages are skipped (internal model reasoning, not useful for summary)
+ * - Tool result content is truncated to prevent large file reads from dominating the summary
  *
  * @param params - Object containing sessionId, index, historyManager, and currentModel
  * @returns Promise<void> - Updates the session with the conversation summary
@@ -50,9 +72,28 @@ export async function compactConversation({
 
   const messages: ChatHistoryItem["message"][] = [];
 
-  // add cancelled chat messages explicitly for cancelled tool calls
+  // Build messages for compaction, with optimizations:
+  // 1. Skip thinking messages (internal model reasoning, no value for summary)
+  // 2. Truncate tool result content (large file reads waste summary tokens)
   filteredHistory.forEach((item) => {
-    messages.push(item.message);
+    // Skip thinking messages - they are internal model reasoning
+    if (item.message.role === "thinking") {
+      return;
+    }
+
+    // Truncate tool result content to save tokens
+    if (
+      item.message.role === "tool" &&
+      typeof item.message.content === "string"
+    ) {
+      messages.push({
+        ...item.message,
+        content: truncateForCompaction(item.message.content),
+      });
+    } else {
+      messages.push(item.message);
+    }
+
     // toolcalls only exist in an assistant message
     if (item.message.role === "assistant" && item.message.toolCalls) {
       // for every toolcall, if there is no tool message with a tool call id already, add a chat message saying that it is empty

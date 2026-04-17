@@ -1,5 +1,30 @@
 import { ToolCallDelta } from "..";
 
+/**
+ * Error thrown when tool call arguments fail to parse.
+ * Contains the raw arguments string for error reporting to the model.
+ */
+export class ToolCallParseError extends Error {
+  constructor(
+    public readonly toolName: string | undefined,
+    public readonly rawArgs: string | undefined,
+  ) {
+    const argSnippet = rawArgs
+      ? rawArgs.substring(0, 200) + (rawArgs.length > 200 ? "..." : "")
+      : "(empty)";
+    super(
+      `Failed to parse arguments for tool "${toolName || "unknown"}". ` +
+        `Raw arguments: ${argSnippet}. ` +
+        `Please provide valid JSON arguments.`,
+    );
+    this.name = "ToolCallParseError";
+  }
+}
+
+/**
+ * Parse tool call arguments. Used in LLM provider message construction
+ * where failure should not abort the request. Returns {} on parse failure.
+ */
 export function safeParseToolCallArgs(
   toolCall: ToolCallDelta,
 ): Record<string, any> {
@@ -17,10 +42,41 @@ export function safeParseToolCallArgs(
   try {
     return JSON.parse(toolCall.function?.arguments?.trim() || "{}");
   } catch (e) {
-    //console.error(
-    //  `Failed to parse tool call arguments:\nTool call: ${toolCall.function?.name + " " + toolCall.id}\nArgs:${toolCall.function?.arguments}\n`,
-    //);
+    console.error(
+      `Failed to parse tool call arguments:\nTool call: ${toolCall.function?.name + " " + toolCall.id}\nArgs:${toolCall.function?.arguments}\n`,
+    );
     return {};
+  }
+}
+
+/**
+ * Parse tool call arguments for tool execution. Throws ToolCallParseError
+ * on failure so the error message (with raw args) is sent back to the model,
+ * allowing it to self-correct and retry.
+ */
+export function strictParseToolCallArgs(
+  toolCall: ToolCallDelta,
+): Record<string, any> {
+  const args = toolCall.function?.arguments;
+
+  if (
+    args &&
+    typeof args === "object" &&
+    !Array.isArray(args) &&
+    Object.keys(args).length > 0
+  ) {
+    return args;
+  }
+
+  try {
+    return JSON.parse(toolCall.function?.arguments?.trim() || "{}");
+  } catch (e) {
+    throw new ToolCallParseError(
+      toolCall.function?.name,
+      typeof toolCall.function?.arguments === "string"
+        ? toolCall.function.arguments
+        : JSON.stringify(toolCall.function?.arguments),
+    );
   }
 }
 

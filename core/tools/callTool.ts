@@ -23,7 +23,7 @@ import { searchWebImpl } from "./implementations/searchWeb";
 import { viewDiffImpl } from "./implementations/viewDiff";
 import { viewRepoMapImpl } from "./implementations/viewRepoMap";
 import { viewSubdirectoryImpl } from "./implementations/viewSubdirectory";
-import { coerceArgsToSchema, safeParseToolCallArgs } from "./parseArgs";
+import { coerceArgsToSchema, strictParseToolCallArgs } from "./parseArgs";
 
 async function callHttpTool(
   url: string,
@@ -243,7 +243,7 @@ export async function callTool(
   mcpUiState?: McpUiState;
 }> {
   try {
-    const args = safeParseToolCallArgs(toolCall);
+    const args = strictParseToolCallArgs(toolCall);
     const { contextItems, mcpUiState } = tool.uri
       ? await callToolFromUri(tool.uri, args, extras)
       : {

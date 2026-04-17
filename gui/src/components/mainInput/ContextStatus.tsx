@@ -39,7 +39,13 @@ const ContextStatus = () => {
     return null;
   }
 
-  const barColorClass = isPruned ? "bg-error" : "bg-description";
+  // Tiered color: 60-75% normal, 75-85% warning, 85%+ or pruned = error
+  const barColorClass =
+    isPruned || percent >= 85
+      ? "bg-error"
+      : percent >= 75
+        ? "bg-warning"
+        : "bg-description";
 
   return (
     <div>
@@ -56,9 +62,19 @@ const ContextStatus = () => {
             <span className="inline-block">
               {`${percent}% of context filled.`}
             </span>
+            {percent >= 75 && percent < 85 && !isPruned && (
+              <span className="text-warning inline-block">
+                {`Context window getting full. Consider compacting or starting a new session.`}
+              </span>
+            )}
+            {percent >= 85 && !isPruned && (
+              <span className="text-error inline-block">
+                {`Context nearly full. Auto-compaction will trigger soon.`}
+              </span>
+            )}
             {isPruned && (
-              <span className="inline-block">
-                {`Oldest messages are being removed.`}
+              <span className="text-error inline-block font-semibold">
+                {`Oldest messages are being removed. Strongly recommend starting a new session.`}
               </span>
             )}
             {history.length > 0 && (

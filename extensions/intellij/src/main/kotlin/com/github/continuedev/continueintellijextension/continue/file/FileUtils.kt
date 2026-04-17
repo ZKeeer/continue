@@ -25,11 +25,11 @@ class FileUtils(
     fun writeFile(fileUri: String, content: String) {
         val path = VfsUtilCore.urlToPath(fileUri)
         val pathDirectory = VfsUtil.getParentDir(path)
-            ?: return LOG.warn("Parent directory is null for $path")
+            ?: throw IllegalArgumentException("Parent directory is null for path: $path (uri: $fileUri)")
         val vfsDirectory = VfsUtil.createDirectories(pathDirectory)
-            ?: return LOG.warn("Could not create directories for $path")
+            ?: throw IllegalStateException("Could not create directories for: $pathDirectory (uri: $fileUri)")
         val pathFilename = VfsUtil.extractFileName(path)
-            ?: return LOG.warn("Could not get filename for $path")
+            ?: throw IllegalArgumentException("Could not extract filename from path: $path (uri: $fileUri)")
         runWriteAction {
             val newFile = vfsDirectory.createChildData(this, pathFilename)
             VfsUtil.saveText(newFile, content)
@@ -93,8 +93,9 @@ class FileUtils(
     private fun findFile(fileUri: String): VirtualFile? {
         val noParams = fileUri.substringBefore("?")
         val normalizedAuthority = normalizeWindowsAuthority(noParams)
-        return VirtualFileManager.getInstance()
-            .refreshAndFindFileByUrl(normalizedAuthority)
+        // Try cached VFS lookup first (non-blocking), fall back to refresh only if needed
+        return VirtualFileManager.getInstance().findFileByUrl(normalizedAuthority)
+            ?: VirtualFileManager.getInstance().refreshAndFindFileByUrl(normalizedAuthority)
     }
 
     private fun readDocument(file: VirtualFile, maxLength: Int): String? {

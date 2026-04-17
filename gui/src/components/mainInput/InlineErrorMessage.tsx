@@ -3,7 +3,10 @@ import { IdeMessengerContext } from "../../context/IdeMessenger";
 import { useAppDispatch, useAppSelector } from "../../redux/hooks";
 import { setInlineErrorMessage } from "../../redux/slices/sessionSlice";
 
-export type InlineErrorMessageType = "out-of-context";
+export type InlineErrorMessageType =
+  | "out-of-context"
+  | "max-iterations"
+  | "auto-compacting";
 
 export default function InlineErrorMessage() {
   const dispatch = useAppDispatch();
@@ -11,6 +14,38 @@ export default function InlineErrorMessage() {
   const inlineErrorMessage = useAppSelector(
     (state) => state.session.inlineErrorMessage,
   );
+  if (inlineErrorMessage === "auto-compacting") {
+    return (
+      <div
+        className={`border-border relative m-2 flex flex-col rounded-md border border-solid bg-transparent p-4`}
+      >
+        <p className={`thread-message text-description text-center text-xs`}>
+          {`Context window getting full. Auto-compacting conversation history...`}
+        </p>
+      </div>
+    );
+  }
+  if (inlineErrorMessage === "max-iterations") {
+    return (
+      <div
+        className={`border-border relative m-2 flex flex-col rounded-md border border-solid bg-transparent p-4`}
+      >
+        <p className={`thread-message text-warning text-center`}>
+          {`Agent reached maximum iteration limit. Please start a new session or simplify your request.`}
+        </p>
+        <div className="text-description flex flex-row items-center justify-center gap-1.5 px-3">
+          <span
+            className="cursor-pointer text-xs hover:underline"
+            onClick={() => {
+              dispatch(setInlineErrorMessage(undefined));
+            }}
+          >
+            Hide
+          </span>
+        </div>
+      </div>
+    );
+  }
   if (inlineErrorMessage === "out-of-context") {
     return (
       <div

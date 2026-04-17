@@ -39,7 +39,10 @@ import { loadSession } from "./session";
 import { streamResponseAfterToolCall } from "./streamResponseAfterToolCall";
 
 // Auto-compact threshold: trigger compaction when context usage exceeds this percentage
-const AUTO_COMPACT_THRESHOLD = 0.8;
+const AUTO_COMPACT_THRESHOLD = 0.85;
+
+// Maximum agent loop iterations to prevent infinite tool call loops
+const MAX_AGENT_ITERATIONS = 50;
 
 /**
  * Builds completion options with reasoning configuration based on session state and model capabilities.
@@ -86,10 +89,12 @@ export const streamNormalInput = createAsyncThunk<
     { legacySlashCommandData, depth = 0 },
     { dispatch, extra, getState },
   ): Promise<void> => {
-    if (process.env.NODE_ENV === "test" && depth > 50) {
-      const message = `Max stream depth of ${50} reached in test`;
-      console.error(message, JSON.stringify(getState(), null, 2));
-      throw new Error(message);
+    if (depth > MAX_AGENT_ITERATIONS) {
+      const message = `Agent reached maximum iteration limit (${MAX_AGENT_ITERATIONS}). Stopping to prevent infinite loop.`;
+      console.warn(`[AgentLoop] ${message}`);
+      dispatch(setInlineErrorMessage("max-iterations"));
+      dispatch(setInactive());
+      return;
     }
     const state = getState();
     const selectedChatModel = selectSelectedChatModel(state);
@@ -206,22 +211,36 @@ export const streamNormalInput = createAsyncThunk<
       console.log(
         `[AutoCompact] Triggered: contextPercentage=${(contextPercentage * 100).toFixed(1)}% > ${AUTO_COMPACT_THRESHOLD * 100}%`,
       );
+      // Notify user that compaction is in progress
+      dispatch(setInlineErrorMessage("auto-compacting"));
+
       // Request compaction for all messages except the last user message
-      const compactIndex = history.length - 2;
+      // Sliding window: preserve recent 3 rounds (6 messages) of conversation
+      const preserveCount = Math.min(6, history.length - 2);
+      const compactIndex = Math.max(0, history.length - 2 - preserveCount);
       const sessionId = state.session.id;
       if (sessionId && compactIndex > 0) {
-        await extra.ideMessenger.request("conversation/compact", {
-          index: compactIndex,
-          sessionId,
-        });
-        // Reload session to get compacted history
-        await dispatch(loadSession({ sessionId, saveCurrentSession: false }));
+        try {
+          await extra.ideMessenger.request("conversation/compact", {
+            index: compactIndex,
+            sessionId,
+          });
+          // Reload session to get compacted history
+          await dispatch(loadSession({ sessionId, saveCurrentSession: false }));
+        } catch (e) {
+          console.error("[AutoCompact] Failed:", e);
+        } finally {
+          // Clear compaction notification
+          dispatch(setInlineErrorMessage(undefined));
+        }
         // Retry with compacted history
         dispatch(setInactive());
         await dispatch(
           streamNormalInput({ legacySlashCommandData, depth: depth + 1 }),
         );
         return;
+      } else {
+        dispatch(setInlineErrorMessage(undefined));
       }
     }
 

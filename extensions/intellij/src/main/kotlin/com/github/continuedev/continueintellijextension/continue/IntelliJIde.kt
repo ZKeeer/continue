@@ -48,6 +48,33 @@ class IntelliJIDE(
     private val continuePluginService: ContinuePluginService,
 
     ) : IDE {
+    companion object {
+        private const val READ_FILE_TIMEOUT_MS = 30_000L
+        private const val RIPGREP_TIMEOUT_MS = 30_000L
+    }
+
+    /**
+     * Run an external command with a hard timeout that actually kills the process.
+     * Unlike coroutine withTimeout, this ensures the OS process is destroyed
+     * even if the thread is blocked on IO (common under high IO load).
+     * Stdout is consumed on a separate thread to prevent pipe buffer deadlocks.
+     */
+    private fun execWithTimeout(command: GeneralCommandLine, timeoutMs: Long): String {
+        val process = command.createProcess()
+        // Consume stdout on a background thread to prevent pipe buffer deadlock
+        val stdoutFuture = java.util.concurrent.CompletableFuture.supplyAsync {
+            process.inputStream.bufferedReader().readText()
+        }
+        val completed = process.waitFor(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS)
+        if (!completed) {
+            process.destroyForcibly()
+            stdoutFuture.cancel(true)
+            throw java.util.concurrent.TimeoutException(
+                "Process timed out after ${timeoutMs}ms: ${command.commandLineString.take(200)}"
+            )
+        }
+        return stdoutFuture.get(5, java.util.concurrent.TimeUnit.SECONDS)
+    }
     
     // Security-focused ignore patterns - should always be excluded for security reasons
     private val DEFAULT_SECURITY_IGNORE_FILETYPES = listOf(
@@ -349,7 +376,18 @@ class IntelliJIDE(
         }
 
     override suspend fun readFile(filepath: String): String =
-        fileUtils.readFile(filepath)
+        try {
+            kotlinx.coroutines.withTimeout(READ_FILE_TIMEOUT_MS) {
+                // Run on IO dispatcher so withTimeout can cancel the coroutine
+                // even if the underlying VFS operation is slow under high IO load
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    fileUtils.readFile(filepath)
+                }
+            }
+        } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
+            println("readFile timed out after ${READ_FILE_TIMEOUT_MS}ms for $filepath")
+            ""
+        }
 
     override suspend fun readRangeInFile(filepath: String, range: Range): String {
         val fullContents = readFile(filepath)
@@ -446,8 +484,13 @@ class IntelliJIDE(
                 val command = GeneralCommandLine(commandArgs)
 
                 command.setWorkDirectory(project.basePath)
-                val results = ExecUtil.execAndGetOutput(command).stdout
+                val results = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    execWithTimeout(command, RIPGREP_TIMEOUT_MS)
+                }
                 return results.split("\n")
+            } catch (e: java.util.concurrent.TimeoutException) {
+                println("getFileResults timed out after ${RIPGREP_TIMEOUT_MS}ms for pattern: $pattern")
+                return emptyList()
             } catch (exception: Exception) {
                 val message = "Error executing ripgrep: ${exception.message}"
                 service<ContinueSentryService>().report(exception, message)
@@ -494,7 +537,12 @@ class IntelliJIDE(
                 val command = GeneralCommandLine(commandArgs)
 
                 command.setWorkDirectory(project.basePath)
-                return ExecUtil.execAndGetOutput(command).stdout
+                return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    execWithTimeout(command, RIPGREP_TIMEOUT_MS)
+                }
+            } catch (e: java.util.concurrent.TimeoutException) {
+                println("getSearchResults timed out after ${RIPGREP_TIMEOUT_MS}ms for query: $query")
+                return "Error: Search timed out after ${RIPGREP_TIMEOUT_MS / 1000}s."
             } catch (exception: Exception) {
                 val message = "Error executing ripgrep: ${exception.message}"
                 service<ContinueSentryService>().report(exception, message)
@@ -706,6 +754,10 @@ class IntelliJIDE(
     }
 
     override suspend fun getDocumentSymbols(textDocumentIdentifier: String): List<DocumentSymbol> {
+        // Skip during indexing - PSI data is unreliable in dumb mode
+        if (com.intellij.openapi.project.DumbService.getInstance(project).isDumb) {
+            return emptyList()
+        }
         return withContext(Dispatchers.EDT) {
             try {
                 val path = UriUtils.uriToFile(textDocumentIdentifier).path
