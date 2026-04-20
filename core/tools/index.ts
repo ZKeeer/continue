@@ -13,6 +13,8 @@ export const getBaseToolDefinitions = () => [
   toolDefinitions.lsTool,
   toolDefinitions.createRuleBlock,
   toolDefinitions.fetchUrlContentTool,
+  toolDefinitions.getProblemsTool,
+  toolDefinitions.manageTodoListTool,
 ];
 
 export const getConfigDependentToolDefinitions = async (
@@ -35,6 +37,10 @@ export const getConfigDependentToolDefinitions = async (
       toolDefinitions.viewSubdirectoryTool,
       toolDefinitions.codebaseTool,
       toolDefinitions.readFileRangeTool,
+      toolDefinitions.findReferencesTool,
+      toolDefinitions.gotoDefinitionTool,
+      toolDefinitions.renameSymbolTool,
+      toolDefinitions.subAgentTool,
     );
   }
 

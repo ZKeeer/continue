@@ -738,19 +738,113 @@ class IntelliJIDE(
         fileUtils.getFileStats(files)
 
     override suspend fun gotoDefinition(location: Location): List<RangeInFile> {
-        throw NotImplementedError("gotoDefinition not implemented yet")
+        if (com.intellij.openapi.project.DumbService.getInstance(project).isDumb) {
+            return emptyList()
+        }
+        return withContext(Dispatchers.EDT) {
+            try {
+                val path = UriUtils.uriToFile(location.filepath).path
+                val vf = LocalFileSystem.getInstance().findFileByPath(path)
+                    ?: return@withContext emptyList<RangeInFile>()
+                val doc = FileDocumentManager.getInstance().getDocument(vf)
+                    ?: return@withContext emptyList<RangeInFile>()
+                val psiFile = PsiDocumentManager.getInstance(project).getPsiFile(doc)
+                    ?: return@withContext emptyList<RangeInFile>()
+                val offset = doc.getLineStartOffset(location.position.line) + location.position.character
+                val ref = psiFile.findReferenceAt(offset)
+                val resolved = ref?.resolve()
+                if (resolved != null) {
+                    val targetFile = resolved.containingFile?.virtualFile
+                    if (targetFile != null) {
+                        val targetDoc = FileDocumentManager.getInstance().getDocument(targetFile)
+                        if (targetDoc != null) {
+                            val range = psiToRange(resolved, targetDoc)
+                            val targetUri = targetFile.toUriOrNull() ?: targetFile.path
+                            return@withContext listOf(RangeInFile(targetUri, range))
+                        }
+                    }
+                }
+                emptyList()
+            } catch (_: Exception) {
+                emptyList()
+            }
+        }
     }
 
     override suspend fun gotoTypeDefinition(location: Location): List<RangeInFile> {
-        throw NotImplementedError("gotoTypeDefinition not implemented yet")
+        // Type definition navigation is complex in IntelliJ PSI; return empty for now
+        return emptyList()
     }
 
     override suspend fun getSignatureHelp(location: Location): SignatureHelp? {
-        throw NotImplementedError("getSignatureHelp not implemented yet")
+        // Signature help requires editor context; not easily accessible from headless call
+        return null
     }
 
     override suspend fun getReferences(location: Location): List<RangeInFile> {
-        throw NotImplementedError("getReferences not implemented yet")
+        if (com.intellij.openapi.project.DumbService.getInstance(project).isDumb) {
+            return emptyList()
+        }
+        return withContext(Dispatchers.EDT) {
+            try {
+                val path = UriUtils.uriToFile(location.filepath).path
+                val vf = LocalFileSystem.getInstance().findFileByPath(path)
+                    ?: return@withContext emptyList<RangeInFile>()
+                val doc = FileDocumentManager.getInstance().getDocument(vf)
+                    ?: return@withContext emptyList<RangeInFile>()
+                val psiFile = PsiDocumentManager.getInstance(project).getPsiFile(doc)
+                    ?: return@withContext emptyList<RangeInFile>()
+                val offset = doc.getLineStartOffset(location.position.line) + location.position.character
+                val element = psiFile.findElementAt(offset) ?: return@withContext emptyList<RangeInFile>()
+                val results = mutableListOf<RangeInFile>()
+                val searchScope = com.intellij.psi.search.GlobalSearchScope.projectScope(project)
+                val references = com.intellij.psi.search.searches.ReferencesSearch.search(element, searchScope).findAll()
+                for (ref in references) {
+                    val refElement = ref.element
+                    val refFile = refElement.containingFile?.virtualFile ?: continue
+                    val refDoc = FileDocumentManager.getInstance().getDocument(refFile) ?: continue
+                    val range = psiToRange(refElement, refDoc)
+                    val refUri = refFile.toUriOrNull() ?: refFile.path
+                    results.add(RangeInFile(refUri, range))
+                }
+                results
+            } catch (_: Exception) {
+                emptyList()
+            }
+        }
+    }
+
+    override suspend fun renameSymbol(filepath: String, position: Position, newName: String): Map<String, Any?> {
+        if (com.intellij.openapi.project.DumbService.getInstance(project).isDumb) {
+            return mapOf("success" to false, "error" to "IDE is indexing, please wait")
+        }
+        return withContext(Dispatchers.EDT) {
+            try {
+                val path = UriUtils.uriToFile(filepath).path
+                val vf = LocalFileSystem.getInstance().findFileByPath(path)
+                    ?: return@withContext mapOf<String, Any?>("success" to false, "error" to "File not found")
+                val doc = FileDocumentManager.getInstance().getDocument(vf)
+                    ?: return@withContext mapOf<String, Any?>("success" to false, "error" to "Cannot open document")
+                val psiFile = PsiDocumentManager.getInstance(project).getPsiFile(doc)
+                    ?: return@withContext mapOf<String, Any?>("success" to false, "error" to "Cannot get PSI file")
+                val offset = doc.getLineStartOffset(position.line) + position.character
+                val element = psiFile.findElementAt(offset)
+                    ?: return@withContext mapOf<String, Any?>("success" to false, "error" to "No element at position")
+
+                // Find the nameable parent element
+                val named = element.parent as? PsiNameIdentifierOwner
+                    ?: return@withContext mapOf<String, Any?>("success" to false, "error" to "Element is not renameable")
+
+                // Use RefactoringFactory for rename
+                val factory = com.intellij.refactoring.RefactoringFactory.getInstance(project)
+                val rename = factory.createRename(named, newName)
+                rename.run()
+
+                mapOf<String, Any?>("success" to true, "filesChanged" to 1)
+            } catch (e: Exception) {
+                mapOf<String, Any?>("success" to false, "error" to (e.message ?: "Rename failed"))
+            }
+        }
     }
 
     override suspend fun getDocumentSymbols(textDocumentIdentifier: String): List<DocumentSymbol> {

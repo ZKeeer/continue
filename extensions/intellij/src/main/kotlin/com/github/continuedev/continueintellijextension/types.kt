@@ -260,6 +260,7 @@ interface IDE {
     suspend fun getSignatureHelp(location: Location): SignatureHelp?
     suspend fun getReferences(location: Location): List<RangeInFile>
     suspend fun getDocumentSymbols(textDocumentIdentifier: String): List<DocumentSymbol>
+    suspend fun renameSymbol(filepath: String, position: Position, newName: String): Map<String, Any?>
 
     // Callbacks
     fun onDidChangeActiveTextEditor(callback: (filepath: String) -> Unit)

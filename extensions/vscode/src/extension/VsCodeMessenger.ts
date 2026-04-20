@@ -797,6 +797,10 @@ export class VsCodeMessenger {
       return await ide.getDocumentSymbols(msg.data.textDocumentIdentifier);
     });
 
+    this.onWebviewOrCore("renameSymbol", async (msg) => {
+      return await ide.renameSymbol(msg.data);
+    });
+
     this.onWebviewOrCore("getFileStats", async (msg) => {
       return await ide.getFileStats(msg.data.files);
     });

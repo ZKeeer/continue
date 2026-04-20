@@ -173,5 +173,21 @@ export class ReverseMessageIde {
     this.on("getBranch", (data) => {
       return this.ide.getBranch(data.dir);
     });
+
+    this.on("gotoDefinition", (data) => {
+      return this.ide.gotoDefinition(data.location);
+    });
+
+    this.on("getReferences", (data) => {
+      return this.ide.getReferences(data.location);
+    });
+
+    this.on("getDocumentSymbols", (data) => {
+      return this.ide.getDocumentSymbols(data.textDocumentIdentifier);
+    });
+
+    this.on("renameSymbol", (data) => {
+      return this.ide.renameSymbol(data);
+    });
   }
 }

@@ -931,6 +931,11 @@ export interface IDE {
   getSignatureHelp(location: Location): Promise<SignatureHelp | null>; // TODO: add to jetbrains
   getReferences(location: Location): Promise<RangeInFile[]>;
   getDocumentSymbols(textDocumentIdentifier: string): Promise<DocumentSymbol[]>;
+  renameSymbol(params: {
+    filepath: string;
+    position: Position;
+    newName: string;
+  }): Promise<{ success: boolean; filesChanged?: number; error?: string }>;
 
   // Callbacks
   onDidChangeActiveTextEditor(callback: (fileUri: string) => void): void;

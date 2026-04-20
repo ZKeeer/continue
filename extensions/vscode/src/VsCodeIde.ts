@@ -8,9 +8,9 @@ import * as URI from "uri-js";
 import * as vscode from "vscode";
 
 import {
-    executeGotoProvider,
-    executeSignatureHelpProvider,
-    executeSymbolProvider,
+  executeGotoProvider,
+  executeSignatureHelpProvider,
+  executeSymbolProvider,
 } from "./autocomplete/lsp";
 import { Repository } from "./otherExtensions/git";
 import { SecretStorage } from "./stubs/SecretStorage";
@@ -20,19 +20,19 @@ import { getExtensionUri, openEditorAndRevealRange } from "./util/vscode";
 import { VsCodeWebviewProtocol } from "./webviewProtocol";
 
 import type {
-    DocumentSymbol,
-    FileStatsMap,
-    FileType,
-    IDE,
-    IdeInfo,
-    IdeSettings,
-    IndexTag,
-    Location,
-    Problem,
-    RangeInFile,
-    SignatureHelp,
-    TerminalOptions,
-    Thread,
+  DocumentSymbol,
+  FileStatsMap,
+  FileType,
+  IDE,
+  IdeInfo,
+  IdeSettings,
+  IndexTag,
+  Location,
+  Problem,
+  RangeInFile,
+  SignatureHelp,
+  TerminalOptions,
+  Thread,
 } from "core";
 
 class VsCodeIde implements IDE {
@@ -135,6 +135,50 @@ class VsCodeIde implements IDE {
     });
 
     return result;
+  }
+
+  async renameSymbol(params: {
+    filepath: string;
+    position: { line: number; character: number };
+    newName: string;
+  }): Promise<{ success: boolean; filesChanged?: number; error?: string }> {
+    try {
+      const uri = vscode.Uri.parse(params.filepath);
+      const position = new vscode.Position(
+        params.position.line,
+        params.position.character,
+      );
+
+      const edit: vscode.WorkspaceEdit | undefined =
+        await vscode.commands.executeCommand(
+          "vscode.executeDocumentRenameProvider",
+          uri,
+          position,
+          params.newName,
+        );
+
+      if (!edit) {
+        return {
+          success: false,
+          error:
+            "Rename provider returned no edits. Symbol may not be renameable at this position.",
+        };
+      }
+
+      const filesChanged = edit.size;
+      const applied = await vscode.workspace.applyEdit(edit);
+
+      if (!applied) {
+        return { success: false, error: "Failed to apply rename edits." };
+      }
+
+      return { success: true, filesChanged };
+    } catch (e: any) {
+      return {
+        success: false,
+        error: e?.message || String(e),
+      };
+    }
   }
 
   onDidChangeActiveTextEditor(callback: (uri: string) => void): void {
@@ -362,11 +406,18 @@ class VsCodeIde implements IDE {
   private static MAX_BYTES = 100000;
   private static READ_FILE_TIMEOUT_MS = 30_000;
 
-  private withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  private withTimeout<T>(
+    promise: Promise<T>,
+    ms: number,
+    label: string,
+  ): Promise<T> {
     return Promise.race([
       promise,
       new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error(`Timeout after ${ms}ms: ${label}`)), ms),
+        setTimeout(
+          () => reject(new Error(`Timeout after ${ms}ms: ${label}`)),
+          ms,
+        ),
       ),
     ]);
   }
@@ -724,4 +775,3 @@ class VsCodeIde implements IDE {
 }
 
 export { VsCodeIde };
-

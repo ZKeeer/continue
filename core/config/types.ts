@@ -755,6 +755,11 @@ declare global {
     getSignatureHelp(location: Location): Promise<SignatureHelp | null>;
     getReferences(location: Location): Promise<RangeInFile[]>;
     getDocumentSymbols(textDocumentIdentifier: string): Promise<DocumentSymbol[]>;
+    renameSymbol(params: {
+      filepath: string;
+      position: { line: number; character: number };
+      newName: string;
+    }): Promise<{ success: boolean; filesChanged?: number; error?: string }>;
   
     // Callbacks
     onDidChangeActiveTextEditor(callback: (filepath: string) => void): void;

@@ -31,7 +31,7 @@ class ContinueProcessHandler(
             initDirectIO(process, handleMessage)
         } else {
             writer = OutputStreamWriter(process.output)
-            reader = BufferedReader(InputStreamReader(process.input), 262144) // 256KB buffer
+            reader = BufferedReader(InputStreamReader(process.input), 8 * 1024 * 1024) // 8MB buffer for agent mode
             initStreamIO(handleMessage)
         }
     }

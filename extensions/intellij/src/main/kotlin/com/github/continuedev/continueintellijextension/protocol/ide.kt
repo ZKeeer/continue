@@ -65,3 +65,33 @@ data class GetFileStatsParams(val files: List<String>)
 data class RunCommandParams(val command: String, val options: TerminalOptions?)
 
 data class GetDocumentSymbolsParams(val textDocumentIdentifier: String)
+
+data class GotoDefinitionParams(
+    val location: LocationParam
+)
+
+data class GetReferencesParams(
+    val location: LocationParam
+)
+
+data class LocationParam(
+    val filepath: String,
+    val position: PositionParam
+)
+
+data class PositionParam(
+    val line: Int,
+    val character: Int
+)
+
+data class RenameSymbolParams(
+    val filepath: String,
+    val position: PositionParam,
+    val newName: String
+)
+
+data class RenameSymbolResult(
+    val success: Boolean,
+    val filesChanged: Int? = null,
+    val error: String? = null
+)

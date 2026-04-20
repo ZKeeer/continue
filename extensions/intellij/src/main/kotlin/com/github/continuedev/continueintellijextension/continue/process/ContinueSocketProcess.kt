@@ -18,7 +18,7 @@ class ContinueSocketProcess private constructor(
         socket.close()
 
     companion object {
-        private const val BUFFER_SIZE = 262144 // 256KB
+        private const val BUFFER_SIZE = 8 * 1024 * 1024 // 8MB — agent mode can exchange large JSON messages
         private const val CONNECT_TIMEOUT_MS = 5000
 
         fun connectWithRetry(

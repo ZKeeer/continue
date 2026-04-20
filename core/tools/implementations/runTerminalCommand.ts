@@ -46,6 +46,7 @@ import {
   updateProcessOutput,
 } from "../../util/processTerminalStates";
 import { getBooleanArg, getStringArg } from "../parseArgs";
+import { getSessionShell } from "./persistentShell";
 
 /**
  * Resolves the working directory from workspace dirs.
@@ -116,7 +117,55 @@ export const runTerminalCommandImpl: ToolImpl = async (args, extras) => {
   const toolCallId = extras.toolCallId || "";
 
   if (LOCAL_ONLY.includes(ideInfo.remoteName)) {
-    // For streaming output
+    // Use persistent shell for commands that wait for completion (preserves cwd/env)
+    if (waitForCompletion && extras.onPartialOutput) {
+      try {
+        const workspaceDirs = await extras.ide.getWorkspaceDirs();
+        const cwd = resolveWorkingDirectory(workspaceDirs);
+        const shell = getSessionShell(cwd);
+
+        let streamedOutput = "";
+
+        const result = await shell.runCommand(command, (chunk) => {
+          streamedOutput += chunk;
+          extras.onPartialOutput!({
+            toolCallId,
+            contextItems: [
+              {
+                name: "Terminal",
+                description: "Terminal command output",
+                content: streamedOutput,
+              },
+            ],
+          });
+        });
+
+        const exitCode = result.exitCode;
+        const output = result.output || streamedOutput;
+
+        if (exitCode !== 0) {
+          return [
+            {
+              name: "Terminal",
+              description: "Terminal command output (non-zero exit)",
+              content: `Command exited with code ${exitCode}:\n${output}`,
+            },
+          ];
+        }
+
+        return [
+          {
+            name: "Terminal",
+            description: "Terminal command output",
+            content: output,
+          },
+        ];
+      } catch (e) {
+        // Fall through to legacy spawn if persistent shell fails
+      }
+    }
+
+    // Legacy path: streaming output with per-command spawn
     if (extras.onPartialOutput) {
       try {
         const workspaceDirs = await extras.ide.getWorkspaceDirs();

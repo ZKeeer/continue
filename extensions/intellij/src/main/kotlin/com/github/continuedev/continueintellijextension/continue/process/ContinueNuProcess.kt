@@ -43,7 +43,7 @@ class ContinueNuProcess(
 ) : ContinueProcess {
 
     companion object {
-        private const val BUFFER_SIZE = 262144 // 256KB
+        private const val BUFFER_SIZE = 8 * 1024 * 1024 // 8MB — agent mode can exchange large JSON messages
         private val log = Logger.getInstance(ContinueNuProcess::class.java)
 
         private fun setPermissions() {

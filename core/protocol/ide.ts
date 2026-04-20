@@ -7,6 +7,7 @@ import type {
   IdeSettings,
   IndexTag,
   Location,
+  Position,
   Problem,
   Range,
   RangeInFile,
@@ -87,6 +88,10 @@ export type ToIdeFromWebviewOrCoreProtocol = {
   getSignatureHelp: [{ location: Location }, SignatureHelp | null];
   getReferences: [{ location: Location }, RangeInFile[]];
   getDocumentSymbols: [{ textDocumentIdentifier: string }, DocumentSymbol[]];
+  renameSymbol: [
+    { filepath: string; position: Position; newName: string },
+    { success: boolean; filesChanged?: number; error?: string },
+  ];
 
   getControlPlaneSessionInfo: [
     { silent: boolean; useOnboarding: boolean },

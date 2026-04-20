@@ -10,6 +10,7 @@ import type {
   IdeSettings,
   IndexTag,
   Location,
+  Position,
   Problem,
   Range,
   RangeInFile,
@@ -89,6 +90,14 @@ export class MessageIde implements IDE {
     textDocumentIdentifier: string,
   ): Promise<DocumentSymbol[]> {
     return this.request("getDocumentSymbols", { textDocumentIdentifier });
+  }
+
+  async renameSymbol(params: {
+    filepath: string;
+    position: Position;
+    newName: string;
+  }): Promise<{ success: boolean; filesChanged?: number; error?: string }> {
+    return this.request("renameSymbol", params);
   }
 
   onDidChangeActiveTextEditor(callback: (fileUri: string) => void): void {

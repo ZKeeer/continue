@@ -494,6 +494,39 @@ class IdeProtocolClient(
                         respond(symbols)
                     }
 
+                    "gotoDefinition" -> {
+                        val params = Gson().fromJson(
+                            dataElement.toString(),
+                            GotoDefinitionParams::class.java
+                        )
+                        val location = Location(params.location.filepath, Position(params.location.position.line, params.location.position.character))
+                        val results = ide.gotoDefinition(location)
+                        respond(results)
+                    }
+
+                    "getReferences" -> {
+                        val params = Gson().fromJson(
+                            dataElement.toString(),
+                            GetReferencesParams::class.java
+                        )
+                        val location = Location(params.location.filepath, Position(params.location.position.line, params.location.position.character))
+                        val results = ide.getReferences(location)
+                        respond(results)
+                    }
+
+                    "renameSymbol" -> {
+                        val params = Gson().fromJson(
+                            dataElement.toString(),
+                            RenameSymbolParams::class.java
+                        )
+                        val result = ide.renameSymbol(
+                            params.filepath,
+                            Position(params.position.line, params.position.character),
+                            params.newName
+                        )
+                        respond(result)
+                    }
+
                     else -> {
                         println("Unknown message type: $messageType")
                     }

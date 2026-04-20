@@ -61,6 +61,17 @@ class FileSystemIde implements IDE {
     return Promise.resolve([]);
   }
 
+  renameSymbol(_params: {
+    filepath: string;
+    position: { line: number; character: number };
+    newName: string;
+  }): Promise<{ success: boolean; filesChanged?: number; error?: string }> {
+    return Promise.resolve({
+      success: false,
+      error: "Rename not supported in this environment",
+    });
+  }
+
   onDidChangeActiveTextEditor(callback: (fileUri: string) => void): void {
     return;
   }

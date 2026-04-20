@@ -4,6 +4,12 @@ import { CLIENT_TOOLS_IMPLS } from "core/tools/builtIn";
 import { ContinueError, ContinueErrorReason } from "core/util/errors";
 import posthog from "posthog-js";
 import { callClientTool } from "../../util/clientTools/callClientTool";
+import {
+  clearToolErrors,
+  formatEnhancedToolError,
+  hasReachedErrorLimit,
+  trackToolError,
+} from "../../util/toolErrorTracker";
 import { selectSelectedChatModel } from "../slices/configSlice";
 import {
   acceptToolCall,
@@ -105,6 +111,14 @@ export const callToolById = createAsyncThunk<
   }
 
   if (error) {
+    const toolName = toolCallState.toolCall.function.name;
+    const attemptNumber = trackToolError(toolName, error.message);
+    const enhancedMessage = formatEnhancedToolError(
+      toolName,
+      error.message,
+      attemptNumber,
+    );
+
     dispatch(
       updateToolCallOutput({
         toolCallId,
@@ -113,13 +127,15 @@ export const callToolById = createAsyncThunk<
             icon: "problems",
             name: "Tool Call Error",
             description: "Tool Call Failed",
-            content: `${toolCallState.toolCall.function.name} failed with the message: ${error.message}\n\nPlease try something else or request further instructions.`,
+            content: enhancedMessage,
             hidden: false,
           },
         ],
       }),
     );
   } else if (output?.length) {
+    // Clear error tracking on success
+    clearToolErrors(toolCallState.toolCall.function.name);
     dispatch(
       updateToolCallOutput({
         toolCallId,
@@ -147,6 +163,17 @@ export const callToolById = createAsyncThunk<
           toolCallId,
         }),
       );
+
+      // Stop agent loop if consecutive same-error limit reached
+      if (
+        hasReachedErrorLimit(
+          toolCallState.toolCall.function.name,
+          error.message,
+        )
+      ) {
+        dispatch(setInactive());
+        return;
+      }
     } else {
       logToolUsage(toolCallState, true, true, extra.ideMessenger, output);
       dispatch(

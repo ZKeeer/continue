@@ -9,17 +9,23 @@ import { codebaseToolImpl } from "./implementations/codebaseTool";
 import { createNewFileImpl } from "./implementations/createNewFile";
 import { createRuleBlockImpl } from "./implementations/createRuleBlock";
 import { fetchUrlContentImpl } from "./implementations/fetchUrlContent";
+import { findReferencesImpl } from "./implementations/findReferences";
+import { getProblemsImpl } from "./implementations/getProblems";
 import { fileGlobSearchImpl } from "./implementations/globSearch";
+import { gotoDefinitionImpl } from "./implementations/gotoDefinition";
 import { grepSearchImpl } from "./implementations/grepSearch";
 import { lsToolImpl } from "./implementations/lsTool";
+import { manageTodoListImpl } from "./implementations/manageTodoList";
 import { readCurrentlyOpenFileImpl } from "./implementations/readCurrentlyOpenFile";
 import { readFileImpl } from "./implementations/readFile";
 
 import { readFileRangeImpl } from "./implementations/readFileRange";
 import { readSkillImpl } from "./implementations/readSkill";
+import { renameSymbolImpl } from "./implementations/renameSymbol";
 import { requestRuleImpl } from "./implementations/requestRule";
 import { runTerminalCommandImpl } from "./implementations/runTerminalCommand";
 import { searchWebImpl } from "./implementations/searchWeb";
+import { subAgentImpl } from "./implementations/subAgent";
 import { viewDiffImpl } from "./implementations/viewDiff";
 import { viewRepoMapImpl } from "./implementations/viewRepoMap";
 import { viewSubdirectoryImpl } from "./implementations/viewSubdirectory";
@@ -220,6 +226,18 @@ export async function callBuiltInTool(
       return await codebaseToolImpl(args, extras);
     case BuiltInToolNames.ReadSkill:
       return await readSkillImpl(args, extras);
+    case BuiltInToolNames.GetProblems:
+      return await getProblemsImpl(args, extras);
+    case BuiltInToolNames.ManageTodoList:
+      return await manageTodoListImpl(args, extras);
+    case BuiltInToolNames.FindReferences:
+      return await findReferencesImpl(args, extras);
+    case BuiltInToolNames.GotoDefinition:
+      return await gotoDefinitionImpl(args, extras);
+    case BuiltInToolNames.RenameSymbol:
+      return await renameSymbolImpl(args, extras);
+    case BuiltInToolNames.SubAgent:
+      return await subAgentImpl(args, extras);
     case BuiltInToolNames.ViewRepoMap:
       return await viewRepoMapImpl(args, extras);
     case BuiltInToolNames.ViewSubdirectory:

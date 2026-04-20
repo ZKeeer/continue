@@ -17,6 +17,12 @@ export enum BuiltInToolNames {
   FetchUrlContent = "fetch_url_content",
   CodebaseTool = "codebase",
   ReadSkill = "read_skill",
+  GetProblems = "get_problems",
+  ManageTodoList = "manage_todo_list",
+  FindReferences = "find_references",
+  GotoDefinition = "goto_definition",
+  RenameSymbol = "rename_symbol",
+  SubAgent = "sub_agent",
 
   // excluded from allTools for now
   ViewRepoMap = "view_repo_map",
