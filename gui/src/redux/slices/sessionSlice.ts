@@ -224,7 +224,14 @@ type SessionState = {
   contextPercentage?: number;
   inlineErrorMessage?: InlineErrorMessageType;
   compactionLoading: Record<number, boolean>; // Track compaction loading by message index
+  todoListItems?: TodoItem[];
 };
+
+export interface TodoItem {
+  id: number;
+  title: string;
+  status: "not-started" | "in-progress" | "completed";
+}
 
 export const INITIAL_SESSION_STATE: SessionState = {
   isSessionMetadataLoading: false,
@@ -244,6 +251,7 @@ export const INITIAL_SESSION_STATE: SessionState = {
   lastSessionId: undefined,
   newestToolbarPreviewForInput: {},
   compactionLoading: {},
+  todoListItems: undefined,
 };
 
 export const sessionSlice = createSlice({
@@ -696,6 +704,7 @@ export const sessionSlice = createSlice({
       state.inlineErrorMessage = undefined;
       state.isPruned = false;
       state.contextPercentage = undefined;
+      state.todoListItems = undefined;
 
       if (payload) {
         state.history = payload.history as any;
@@ -871,6 +880,14 @@ export const sessionSlice = createSlice({
       if (toolCallState) {
         toolCallState.output = action.payload.contextItems;
         toolCallState.mcpUiState = action.payload.mcpUiState;
+
+        // Update sticky todo list widget when manageTodoList tool completes
+        if (toolCallState.toolCall.function?.name === "manage_todo_list") {
+          const items = toolCallState.parsedArgs?.items;
+          if (Array.isArray(items)) {
+            state.todoListItems = items;
+          }
+        }
       }
       const toolItem = findChatHistoryItemByToolCallId(
         state.history,

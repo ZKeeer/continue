@@ -52,6 +52,7 @@ import FeedbackDialog from "../../components/dialogs/FeedbackDialog";
 import { FatalErrorIndicator } from "../../components/config/FatalErrorNotice";
 import InlineErrorMessage from "../../components/mainInput/InlineErrorMessage";
 import { resolveEditorContent } from "../../components/mainInput/TipTapEditor/utils/resolveEditorContent";
+import TodoListWidget from "../../components/mainInput/TodoListWidget";
 import { setDialogMessage, setShowDialog } from "../../redux/slices/uiSlice";
 import { RootState } from "../../redux/store";
 import { cancelStream } from "../../redux/thunks/cancelStream";
@@ -468,6 +469,7 @@ export function Chat() {
             </div>
           ))}
       </StepsDiv>
+      <TodoListWidget />
       <div className={"relative"}>
         <ContinueInputBox
           isMainInput

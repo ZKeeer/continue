@@ -1,8 +1,15 @@
 import { useMemo, useRef } from "react";
 import { useAppDispatch, useAppSelector } from "../../redux/hooks";
+import { selectSelectedChatModelContextLength } from "../../redux/slices/configSlice";
 import { saveCurrentSession } from "../../redux/thunks/session";
 import { useCompactConversation } from "../../util/compactConversation";
 import { ToolTip } from "../gui/Tooltip";
+
+function formatTokenCount(tokens: number): string {
+  if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(1)}M`;
+  if (tokens >= 1_000) return `${(tokens / 1_000).toFixed(1)}k`;
+  return `${tokens}`;
+}
 
 const ContextStatus = () => {
   const dispatch = useAppDispatch();
@@ -12,11 +19,13 @@ const ContextStatus = () => {
   const selectedChatModel = useAppSelector(
     (state) => state.config.config.selectedModelByRole.chat?.model,
   );
+  const contextLength = useAppSelector(selectSelectedChatModelContextLength);
   const previousHistoryLength = useRef<number | null>(null);
   const previousSelectedChatModel = useRef<string | null>(null);
   const history = useAppSelector((state) => state.session.history);
   const percent = Math.round((contextPercentage ?? 0) * 100);
   const isPruned = useAppSelector((state) => state.session.isPruned);
+  const usedTokens = Math.round((contextPercentage ?? 0) * contextLength);
 
   const isDifferentModelAndSameHistory = useMemo(() => {
     if (!selectedChatModel) return false;
@@ -60,7 +69,7 @@ const ContextStatus = () => {
         content={
           <div className="flex flex-col gap-0 text-left text-xs">
             <span className="inline-block">
-              {`${percent}% of context filled.`}
+              {`${formatTokenCount(usedTokens)} / ${formatTokenCount(contextLength)} tokens (${percent}%)`}
             </span>
             {percent >= 75 && percent < 85 && !isPruned && (
               <span className="text-warning inline-block">
@@ -106,11 +115,24 @@ const ContextStatus = () => {
           </div>
         }
       >
-        <div className="border-command-border relative h-[14px] w-[7px] rounded-[1px] border-[0.5px] border-solid md:h-[10px] md:w-[5px]">
-          <div
-            className={`transition-height absolute bottom-0 left-0 w-full duration-300 ease-in-out ${barColorClass}`}
-            style={{ height: `${percent}%` }}
-          />
+        <div className="flex items-center gap-1">
+          <span
+            className={`text-[10px] leading-none ${
+              isPruned || percent >= 85
+                ? "text-error"
+                : percent >= 75
+                  ? "text-warning"
+                  : "text-description"
+            }`}
+          >
+            {formatTokenCount(usedTokens)}/{formatTokenCount(contextLength)}
+          </span>
+          <div className="border-command-border relative h-[14px] w-[7px] rounded-[1px] border-[0.5px] border-solid md:h-[10px] md:w-[5px]">
+            <div
+              className={`transition-height absolute bottom-0 left-0 w-full duration-300 ease-in-out ${barColorClass}`}
+              style={{ height: `${percent}%` }}
+            />
+          </div>
         </div>
       </ToolTip>
     </div>

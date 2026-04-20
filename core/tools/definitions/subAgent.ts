@@ -32,12 +32,23 @@ export const subAgentTool: Tool = {
   },
   defaultToolPolicy: "allowedWithoutPermission",
   systemMessageDescription: {
-    prefix: `To dispatch independent tasks to a sub-agent, use the ${BuiltInToolNames.SubAgent} tool. The sub-agent executes autonomously and returns results:`,
+    prefix: `To dispatch independent tasks to a sub-agent, use the ${BuiltInToolNames.SubAgent} tool. The sub-agent executes autonomously and returns results.
+
+WHEN TO USE SUB-AGENTS (strongly recommended):
+- Exploring or searching across multiple files/directories (e.g., finding all usages, understanding code structure)
+- Reading and analyzing large files or many files at once
+- Independent research tasks that don't need results from other ongoing work
+- Running tests, linting, or build commands and interpreting results
+- Any multi-step investigation that would consume significant context
+
+SUB-AGENTS HELP CONSERVE YOUR CONTEXT WINDOW. Prefer dispatching a sub-agent for exploratory work instead of doing it yourself. You can continue working on other tasks while the sub-agent completes its work.
+
+Examples:`,
     exampleArgs: [
-      ["description", "Fix lint errors in utils/"],
+      ["description", "Explore auth module structure"],
       [
         "prompt",
-        "Run get_problems on all .ts files in the utils/ directory. Fix any type errors you find. Verify each fix compiles correctly.",
+        "Read the files in src/auth/ directory. Summarize the authentication flow, key functions, and how sessions are managed. List all exported functions with brief descriptions.",
       ],
     ],
   },

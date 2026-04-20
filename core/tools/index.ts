@@ -31,6 +31,9 @@ export const getConfigDependentToolDefinitions = async (
     tools.push(toolDefinitions.searchWebTool);
   }
 
+  // Sub-agent is always available (not gated by experimental flag)
+  tools.push(toolDefinitions.subAgentTool);
+
   if (enableExperimentalTools) {
     tools.push(
       toolDefinitions.viewRepoMapTool,
@@ -40,7 +43,6 @@ export const getConfigDependentToolDefinitions = async (
       toolDefinitions.findReferencesTool,
       toolDefinitions.gotoDefinitionTool,
       toolDefinitions.renameSymbolTool,
-      toolDefinitions.subAgentTool,
     );
   }
 
