@@ -27,6 +27,16 @@ class ContinueInlineCompletionProvider : InlineCompletionProvider {
     private var lastProject: Project? = null
     private var isUsingNextEdit = false
 
+    companion object {
+        /**
+         * IntelliJ inserts a dummy identifier "IntellijIdeaRulezzz" at the cursor position
+         * during completion context creation. This leaks into editor.document.text and must
+         * be stripped before passing file contents to the autocomplete model.
+         */
+        private val INTELLIJ_DUMMY_REGEX = Regex("IntellijIdeaRulezzz\\s*")
+        fun stripDummyIdentifier(text: String): String = text.replace(INTELLIJ_DUMMY_REGEX, "")
+    }
+
     override fun isEnabled(event: InlineCompletionEvent): Boolean {
         val isSettingEnabled = ContinueExtensionSettings.instance.continueState.enableTabAutocomplete
         val isEventOk = event is InlineCompletionEvent.DirectCall
@@ -129,7 +139,7 @@ class ContinueInlineCompletionProvider : InlineCompletionProvider {
                 editor.virtualFile.url,
                 editor.caretModel.primaryCaret.logicalPosition.line,
                 editor.caretModel.primaryCaret.logicalPosition.column,
-                editor.document.text
+                stripDummyIdentifier(editor.document.text)
             )
             if (variant == null)
                 return InlineCompletionSuggestion.Empty

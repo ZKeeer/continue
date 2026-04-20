@@ -101,6 +101,10 @@ export class QueueManager {
     startLine: number,
     endLine: number,
   ): void {
+    // [zkdev] Strip IntelliJ dummy identifier that may leak through from document events
+    if (content.includes("IntellijIdeaRulezzz")) {
+      content = content.replace(/IntellijIdeaRulezzz\s*/g, "");
+    }
     this.editedRangesQueue.push({
       filepath,
       content,

@@ -100,6 +100,9 @@ export function postprocessCompletion({
   prefix: string;
   suffix: string;
 }): string | undefined {
+  // [zkdev] Strip IntelliJ dummy identifier that may leak through from document text
+  completion = completion.replace(/IntellijIdeaRulezzz\s*/g, "");
+
   // Don't return empty
   if (isBlank(completion)) {
     console.log(

@@ -1,5 +1,6 @@
 package com.github.continuedev.continueintellijextension.listeners
 
+import com.github.continuedev.continueintellijextension.autocomplete.ContinueInlineCompletionProvider
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.Logger
@@ -27,6 +28,11 @@ class DocumentChangeTracker(private val project: Project) : DocumentListener {
 
     override fun documentChanged(event: DocumentEvent) {
         if (event.document.isWritable) {
+            // Skip events caused by IntelliJ's dummy identifier insertion during completion context creation
+            if (event.newFragment.contains("IntellijIdeaRulezzz") ||
+                event.oldFragment.contains("IntellijIdeaRulezzz")) {
+                return
+            }
             // [zkdev] Send edit event to Core for unified QueueManager push
             sendEditEventToCore(event)
             handleDocumentChange()
@@ -89,7 +95,9 @@ class DocumentChangeTracker(private val project: Project) : DocumentListener {
             val paddedEnd = Math.min(document.lineCount - 1, endLine + 5)
             val localStartOffset = document.getLineStartOffset(paddedStart)
             val localEndOffset = document.getLineEndOffset(paddedEnd)
-            val localContent = document.getText(com.intellij.openapi.util.TextRange(localStartOffset, localEndOffset))
+            val localContent = ContinueInlineCompletionProvider.stripDummyIdentifier(
+                document.getText(com.intellij.openapi.util.TextRange(localStartOffset, localEndOffset))
+            )
 
             val editAction = mapOf(
                 "filepath" to filepath,

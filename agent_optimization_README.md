@@ -270,26 +270,26 @@
 
 #### S 级 — 极高价值 + 低成本
 
-- [ ] **#1 getProblems 升级为 Agent tool** — 极低成本（定义+实现各 20 行）
+- [x] **#1 getProblems 升级为 Agent tool** — 极低成本（定义+实现各 20 行）✅ 已实施
   - 底层已完整实现，仅差 tool 包装；做完 agent 改完代码可自查编译错误
-- [ ] **#2 TODO 列表工具 + 简易 UI** — 低成本
+- [x] **#2 TODO 列表工具 + 简易 UI** — 低成本 ✅ 已实施
   - 模型行为更收敛，用户有透明度
-- [ ] **#3 终端持久化会话** — 中成本
+- [x] **#3 终端持久化会话** — 中成本 ✅ 已实施
   - sessionId + PTY 管理
-- [ ] **#4 Rules 自动沉淀** — 低成本
+- [x] **#4 Rules 自动沉淀** — 低成本 ✅ 已实施
   - createRuleBlock 已存在，只需在合适时机触发
 
 #### A 级 — 高价值 + 中成本
 
-- [ ] **#5 Tool call 结构化重试** — callTool 错误反馈已有，但缺系统重试
-- [ ] **#6 验证循环 skill** — 基于 Plan 模式 + getProblems 组合
-- [ ] **#7 本地子 agent** — Background 模式架构可参考
+- [x] **#5 Tool call 结构化重试** — callTool 错误反馈已有，但缺系统重试 ✅ 已实施
+- [x] **#6 验证循环 skill** — 基于 Plan 模式 + getProblems 组合 ✅ 已实施
+- [x] **#7 本地子 agent** — Background 模式架构可参考 ✅ 已实施
 - [ ] **#8 Git 历史正式化** — 复活 deprecated provider 或接入 Git MCP
 - [ ] **#9 Prompt caching 扩展** — 仅 Anthropic/OpenRouter 有，OpenAI 未做
 
 #### B 级 — 高价值 + 高成本
 
-- [ ] **#10 LSP 符号操作（findReferences/rename）** — IntelliJ 侧工程量大
+- [x] **#10 LSP 符号操作（findReferences/rename）** — IntelliJ 侧工程量大 ✅ 已实施（含 IntelliJ 适配）
 - [ ] **#11 Composer 多文件 diff 预览** — 大量 UI 工作
 - [ ] **#12 Autocomplete 质量** — 架构完整但模型层受限
 

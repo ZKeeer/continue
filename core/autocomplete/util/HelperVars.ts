@@ -123,6 +123,15 @@ export class HelperVars {
       this.input.manuallyPassFileContents ??
       (await this.ide.readFile(this.filepath));
 
+    // [zkdev] Strip IntelliJ dummy identifier that leaks into document text
+    // during IntelliJ's completion context creation
+    if (this._fileContents.includes("IntellijIdeaRulezzz")) {
+      this._fileContents = this._fileContents.replace(
+        /IntellijIdeaRulezzz\s*/g,
+        "",
+      );
+    }
+
     // [zkdev] Ensure constructInitialPrefixSuffix reuses already-read file contents
     // instead of making a redundant IPC readFile call
     this.input.manuallyPassFileContents = this._fileContents;
