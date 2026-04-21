@@ -11,12 +11,10 @@ import {
 import type {
   EasyInputMessage,
   Response as OpenAIResponse,
-  ResponseFunctionCallArgumentsDeltaEvent,
   ResponseFunctionToolCall,
   ResponseInput,
   ResponseInputItem,
   ResponseInputMessageContentList,
-  ResponseOutputItem,
   ResponseOutputItemAddedEvent,
   ResponseOutputItemDoneEvent,
   ResponseOutputMessage,
@@ -367,6 +365,7 @@ export function fromChatCompletionChunk(
       .filter((tool_call) => !tool_call.type || tool_call.type === "function")
       .map((tool_call) => ({
         id: tool_call.id,
+        index: (tool_call as any).index,
         type: "function" as const,
         function: {
           name: (tool_call as any).function?.name,

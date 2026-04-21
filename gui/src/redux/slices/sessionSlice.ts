@@ -128,10 +128,13 @@ function applyToolCallDelta(
     existingStateIndex = toolCallStates.findIndex(
       (state) => state.toolCallId === toolCallDelta.id,
     );
+  } else if (toolCallDelta.index !== undefined) {
+    // No ID but has index (OpenAI parallel tool call fragments)
+    // Use index directly to locate the correct tool call
+    existingStateIndex =
+      toolCallDelta.index < toolCallStates.length ? toolCallDelta.index : -1;
   } else {
-    // No ID in delta (common in OpenAI streaming fragments)
-    // Strategy: Update the most recently added tool call that's still being generated
-    // This handles the pattern: initial tool call with ID, then fragments without ID
+    // No ID and no index - fall back to most recently added tool call
     existingStateIndex = toolCallStates.length - 1;
 
     // Ensure we have at least one tool call to update
