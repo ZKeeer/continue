@@ -36,7 +36,12 @@ export const readFileTool: Tool = {
   defaultToolPolicy: "allowedWithoutPermission",
   toolCallIcon: "DocumentIcon",
   preprocessArgs: async (args, { ide }) => {
-    const filepath = args.filepath as string;
+    const filepath = args.filepath;
+    if (!filepath || typeof filepath !== "string" || !filepath.trim()) {
+      throw new Error(
+        "`filepath` argument is required and must not be empty. (type string)",
+      );
+    }
     const resolvedPath = await resolveInputPath(ide, filepath);
 
     // Store the resolved path info in args for policy evaluation
