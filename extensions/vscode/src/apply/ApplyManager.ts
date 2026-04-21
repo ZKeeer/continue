@@ -32,18 +32,16 @@ export class ApplyManager {
     toolCallId,
     isSearchAndReplace,
   }: ApplyToFilePayload) {
-    if (filepath) {
-      await this.ensureFileOpen(filepath);
-    }
+    const editor = filepath
+      ? await this.ensureFileOpen(filepath)
+      : vscode.window.activeTextEditor;
 
-    const { activeTextEditor } = vscode.window;
-    if (!activeTextEditor) {
-      void vscode.window.showErrorMessage("No active editor to apply edits to");
-      return;
+    if (!editor) {
+      throw new Error("No active editor to apply edits to");
     }
 
     // Capture the original file content before applying changes
-    const originalFileContent = activeTextEditor.document.getText();
+    const originalFileContent = editor.document.getText();
 
     await this.webviewProtocol.request("updateApplyState", {
       streamId,
@@ -53,7 +51,7 @@ export class ApplyManager {
       toolCallId,
     });
 
-    const hasExistingDocument = !!activeTextEditor.document.getText().trim();
+    const hasExistingDocument = !!editor.document.getText().trim();
     if (hasExistingDocument) {
       // Currently `isSearchAndReplace` will always provide a full file rewrite
       // as the contents of `text`, so we can just instantly apply
@@ -65,30 +63,21 @@ export class ApplyManager {
           toolCallId,
         );
       } else {
-        await this.handleExistingDocument(
-          activeTextEditor,
-          text,
-          streamId,
-          toolCallId,
-        );
+        await this.handleExistingDocument(editor, text, streamId, toolCallId);
       }
     } else {
-      await this.handleEmptyDocument(
-        activeTextEditor,
-        text,
-        streamId,
-        toolCallId,
-      );
+      await this.handleEmptyDocument(editor, text, streamId, toolCallId);
     }
   }
 
-  private async ensureFileOpen(filepath: string): Promise<void> {
+  private async ensureFileOpen(filepath: string): Promise<vscode.TextEditor> {
     const fileExists = await this.ide.fileExists(filepath);
     if (!fileExists) {
       await this.ide.writeFile(filepath, "");
-      await this.ide.openFile(filepath);
     }
-    await this.ide.openFile(filepath);
+    const uri = vscode.Uri.parse(filepath);
+    const doc = await vscode.workspace.openTextDocument(uri);
+    return vscode.window.showTextDocument(doc, { preview: false });
   }
 
   private modelIsTooFastForStreaming(model: string): boolean {
