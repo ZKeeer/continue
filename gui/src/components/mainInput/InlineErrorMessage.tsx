@@ -6,7 +6,8 @@ import { setInlineErrorMessage } from "../../redux/slices/sessionSlice";
 export type InlineErrorMessageType =
   | "out-of-context"
   | "max-iterations"
-  | "auto-compacting";
+  | "auto-compacting"
+  | { type: "budget-exceeded"; elapsedMin: number; iterations: number; todoSummary: string };
 
 export default function InlineErrorMessage() {
   const dispatch = useAppDispatch();
@@ -72,6 +73,37 @@ export default function InlineErrorMessage() {
             onClick={() => {
               dispatch(setInlineErrorMessage(undefined));
             }}
+          >
+            Hide
+          </span>
+        </div>
+      </div>
+    );
+  }
+  if (inlineErrorMessage && typeof inlineErrorMessage === "object" && inlineErrorMessage.type === "budget-exceeded") {
+    const { elapsedMin, iterations, todoSummary } = inlineErrorMessage;
+    return (
+      <div
+        className={`border-border relative m-2 flex flex-col rounded-md border border-solid bg-transparent p-4 gap-1`}
+      >
+        <p className={`thread-message text-warning text-center font-semibold`}>
+          Agent budget exceeded — task paused
+        </p>
+        <p className={`thread-message text-description text-center text-xs`}>
+          {`Elapsed: ${elapsedMin} min · Iterations: ${iterations}`}
+        </p>
+        {todoSummary && (
+          <p className={`thread-message text-description text-center text-xs whitespace-pre-line`}>
+            {todoSummary}
+          </p>
+        )}
+        <p className={`thread-message text-description text-center text-xs`}>
+          Review the current state and send a follow-up message to continue.
+        </p>
+        <div className="text-description flex flex-row items-center justify-center gap-1.5 px-3">
+          <span
+            className="cursor-pointer text-xs hover:underline"
+            onClick={() => dispatch(setInlineErrorMessage(undefined))}
           >
             Hide
           </span>

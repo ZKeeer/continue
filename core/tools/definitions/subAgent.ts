@@ -38,7 +38,16 @@ export const subAgentTool: Tool = {
   },
   defaultToolPolicy: "allowedWithoutPermission",
   systemMessageDescription: {
-    prefix: `To dispatch independent tasks to a sub-agent, use the ${BuiltInToolNames.SubAgent} tool. The sub-agent executes autonomously and returns a structured result (summary + files modified + tools used).
+    prefix: `To dispatch independent tasks to a sub-agent, use the ${BuiltInToolNames.SubAgent} tool. The sub-agent executes autonomously and returns a structured V2 result.
+
+**V2 Result Fields** (always present in the tool message):
+- **Status**: Completed / Incomplete / Failed
+- **Summary**: what was accomplished
+- **Evidence**: concrete facts/findings supporting the summary
+- **Files Modified**: list of paths changed
+- **Verification**: steps run (e.g. "get_problems: 0 errors") — empty if none
+- **Failure Reason**: why the task failed or is incomplete (absent if successful)
+- **Next Recommended Action**: what the caller should do next (absent if task is self-contained)
 
 WHEN TO USE SUB-AGENTS (mandatory in these situations):
 - You need to explore or investigate 2+ independent, unrelated problems simultaneously
@@ -52,9 +61,10 @@ PARALLEL DISPATCH (V4): You MAY issue multiple ${BuiltInToolNames.SubAgent} call
 SUB-AGENTS HELP CONSERVE YOUR CONTEXT WINDOW. Prefer dispatching a sub-agent for exploratory work instead of doing it yourself.
 
 HANDLING SUB-AGENT RESULTS:
-- Check the "Files Modified" section — if files are already modified, do not re-edit them unnecessarily
-- If the result indicates failure or timeout, split the task into smaller prompts and re-dispatch
-- Do NOT silently retry the exact same prompt on failure — it will fail again
+- Consume the structured fields directly — do NOT re-read files the sub-agent already confirmed in "Files Modified"
+- If Status is Incomplete or Failed, read "Failure Reason" and "Next Recommended Action" before deciding how to proceed
+- Do NOT silently retry the exact same prompt on failure — it will fail again; split or rephrase instead
+- If Verification is empty, assume no validation was done; consider running get_problems yourself
 
 Examples:`,
     exampleArgs: [

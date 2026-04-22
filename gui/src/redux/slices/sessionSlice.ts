@@ -237,6 +237,8 @@ type SessionState = {
   inlineErrorMessage?: InlineErrorMessageType;
   compactionLoading: Record<number, boolean>; // Track compaction loading by message index
   todoListItems?: TodoItem[];
+  /** Wall-clock timestamp (ms) when the current agent run started (depth===0). Used for budget tracking (S-2a). */
+  agentRunStartTime?: number;
 };
 
 export interface TodoItem {
@@ -717,6 +719,7 @@ export const sessionSlice = createSlice({
       state.isPruned = false;
       state.contextPercentage = undefined;
       state.todoListItems = undefined;
+      state.agentRunStartTime = undefined;
 
       if (payload) {
         state.history = payload.history as any;
@@ -1033,6 +1036,13 @@ export const sessionSlice = createSlice({
     setContextPercentage: (state, action: PayloadAction<number>) => {
       state.contextPercentage = action.payload;
     },
+    /** S-2a: Record the wall-clock start of an agent run (called at depth===0). */
+    setAgentRunStartTime: (
+      state,
+      action: PayloadAction<number | undefined>,
+    ) => {
+      state.agentRunStartTime = action.payload;
+    },
   },
   selectors: {
     selectIsGatheringContext: (state) => {
@@ -1121,6 +1131,7 @@ export const {
   setInlineErrorMessage,
   setIsPruned,
   setContextPercentage,
+  setAgentRunStartTime,
   setCompactionLoading,
 } = sessionSlice.actions;
 

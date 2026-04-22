@@ -21,12 +21,84 @@ const FILE_WRITE_TOOLS = new Set<string>([
   BuiltInToolNames.SingleFindAndReplace,
 ]);
 
-const SUB_AGENT_SYSTEM_PREFIX = `You are a sub-agent executing an independent task. Complete the task thoroughly and return a concise summary of what you accomplished. You have access to tools to read/write files, run commands, search code, etc. Work autonomously — you cannot ask clarifying questions.
+/** Tools whose invocation counts as a verification step */
+const VERIFICATION_TOOLS = new Set<string>([
+  BuiltInToolNames.GetProblems,
+  "run_terminal",
+  "terminal",
+]);
+
+const SUB_AGENT_SYSTEM_PREFIX = `You are a sub-agent executing an independent task. Complete the task thoroughly and return a structured summary of what you accomplished. You have access to tools to read/write files, run commands, search code, etc. Work autonomously — you cannot ask clarifying questions.
 
 ## Task Execution Protocol
 1. Start by calling manage_todo_list to list your planned steps (3-7 items)
 2. Mark each step as completed immediately after finishing it
-3. When done, all todos should be completed or have a reason noted`;
+3. After any file edits, call get_problems to verify no compile errors were introduced
+4. When done, all todos should be completed or have a reason noted
+
+## Required Final Response Format
+Your FINAL response (when you have no more tool calls to make) MUST end with this exact block:
+
+---RESULT-V2---
+{
+  "summary": "one paragraph describing what you accomplished",
+  "evidence": ["key fact or finding 1", "key fact or finding 2"],
+  "verificationRun": ["e.g. get_problems: 0 errors", "npm test: 5 passed"],
+  "failureReason": null,
+  "nextRecommendedAction": "what the caller should do next, or empty string if none"
+}
+---END-V2---
+
+Rules:
+- Set failureReason to null if successful, or a string describing WHY the task failed/is incomplete
+- verificationRun must list every verification step you performed and its outcome; use [] if none
+- evidence should be concrete facts (file names, error messages, test counts) not vague statements
+- nextRecommendedAction should be actionable; use "" if task is fully self-contained`;
+
+// ── S-3: Structured result protocol v2 ────────────────────────────────────
+export interface SubAgentStructuredResult {
+  summary: string;
+  evidence: string[];
+  verificationRun: string[];
+  failureReason: string | null;
+  nextRecommendedAction: string;
+}
+
+/**
+ * Extract the ---RESULT-V2--- JSON block the sub-agent is instructed to append
+ * at the end of its final response.  Returns null on parse failure so callers
+ * can fall back gracefully to the raw text.
+ */
+function parseStructuredResult(
+  text: string,
+): SubAgentStructuredResult | null {
+  const match = text.match(/---RESULT-V2---\s*([\s\S]*?)\s*---END-V2---/);
+  if (!match) return null;
+  try {
+    const parsed = JSON.parse(match[1]);
+    return {
+      summary: String(parsed.summary ?? ""),
+      evidence: Array.isArray(parsed.evidence) ? parsed.evidence.map(String) : [],
+      verificationRun: Array.isArray(parsed.verificationRun)
+        ? parsed.verificationRun.map(String)
+        : [],
+      failureReason:
+        parsed.failureReason != null ? String(parsed.failureReason) : null,
+      nextRecommendedAction: String(parsed.nextRecommendedAction ?? ""),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Strip the ---RESULT-V2--- block from the raw final response so it isn't
+ * shown to the user as raw JSON.
+ */
+function stripResultBlock(text: string): string {
+  return text.replace(/\s*---RESULT-V2---[\s\S]*?---END-V2---\s*$/, "").trim();
+}
+// ─────────────────────────────────────────────────────────────────────────────
 
 interface ToolCallParsed {
   name: string;
@@ -89,15 +161,19 @@ function extractModifiedFiles(allToolCalls: ToolCallParsed[]): string[] {
   return [...seen];
 }
 
-/** Format the final result as structured Markdown */
+/** Format the final result as structured Markdown (v2 protocol) */
 function buildResultContent(
   description: string,
-  summary: string,
+  rawSummary: string,
   iterations: number,
   toolsUsed: Set<string>,
   modifiedFiles: string[],
-  status: "Completed" | "Incomplete" = "Completed",
+  status: "Completed" | "Incomplete" | "Failed",
+  structured: SubAgentStructuredResult | null,
 ): string {
+  // Prefer the structured summary; fall back to stripped raw text
+  const summaryText = structured?.summary || stripResultBlock(rawSummary) || rawSummary;
+
   const lines: string[] = [
     `## Sub-Agent Result: ${description}`,
     "",
@@ -105,12 +181,39 @@ function buildResultContent(
     `**Iterations**: ${iterations}/${MAX_SUB_AGENT_ITERATIONS}`,
     "",
     "### Summary",
-    summary,
+    summaryText,
   ];
 
-  if (modifiedFiles.length > 0) {
+  // evidence (V2)
+  if (structured?.evidence && structured.evidence.length > 0) {
+    lines.push("", "### Evidence");
+    structured.evidence.forEach((e) => lines.push(`- ${e}`));
+  }
+
+  // files modified — merge tool-call tracking with what sub-agent reported
+  const fileSet = new Set(modifiedFiles);
+  if (fileSet.size > 0) {
     lines.push("", "### Files Modified");
-    modifiedFiles.forEach((f) => lines.push(`- ${f}`));
+    fileSet.forEach((f) => lines.push(`- ${f}`));
+  }
+
+  // verification (V2)
+  const verificationLines = structured?.verificationRun ?? [];
+  if (verificationLines.length > 0) {
+    lines.push("", "### Verification");
+    verificationLines.forEach((v) => lines.push(`- ${v}`));
+  }
+
+  // failure reason (V2)
+  if (structured?.failureReason) {
+    lines.push("", "### Failure Reason");
+    lines.push(structured.failureReason);
+  }
+
+  // next recommended action (V2)
+  if (structured?.nextRecommendedAction) {
+    lines.push("", "### Next Recommended Action");
+    lines.push(structured.nextRecommendedAction);
   }
 
   if (toolsUsed.size > 0) {
@@ -308,7 +411,12 @@ export const subAgentImpl: ToolImpl = async (args, extras) => {
   }
 
   const modifiedFiles = extractModifiedFiles(allToolCallsExecuted);
-  const status = hitMaxIterations ? "Incomplete" : "Completed";
+  const status: "Completed" | "Incomplete" = hitMaxIterations
+    ? "Incomplete"
+    : "Completed";
+
+  // S-3: parse structured result block from the sub-agent's final response
+  const structured = parseStructuredResult(finalResponse);
 
   return [
     {
@@ -323,6 +431,7 @@ export const subAgentImpl: ToolImpl = async (args, extras) => {
         toolNamesUsed,
         modifiedFiles,
         status,
+        structured,
       ),
     },
   ];

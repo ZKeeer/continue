@@ -10,6 +10,7 @@ import {
   addPromptCompletionPair,
   errorToolCall,
   setActive,
+  setAgentRunStartTime,
   setAppliedRulesAtIndex,
   setContextPercentage,
   setInactive,
@@ -43,6 +44,10 @@ const AUTO_COMPACT_THRESHOLD = 0.85;
 
 // Maximum agent loop iterations to prevent infinite tool call loops
 const MAX_AGENT_ITERATIONS = 50;
+
+// S-2a: Budget limits — hard stop with graceful progress report
+const BUDGET_WALL_CLOCK_MS = 15 * 60 * 1000; // 15 minutes per agent run
+const BUDGET_ITERATIONS = 35;               // LLM rounds before graceful stop
 
 /**
  * Builds completion options with reasoning configuration based on session state and model capabilities.
@@ -96,6 +101,49 @@ export const streamNormalInput = createAsyncThunk<
       dispatch(setInactive());
       return;
     }
+
+    // S-2a: Budget tracking — record start time on first call; check wall-clock and iteration budgets on subsequent calls
+    if (depth === 0) {
+      dispatch(setAgentRunStartTime(Date.now()));
+    } else {
+      const startTime = getState().session.agentRunStartTime;
+      const elapsedMs = startTime ? Date.now() - startTime : 0;
+      const elapsedMin = Math.round(elapsedMs / 60_000);
+
+      const overWallClock = elapsedMs > BUDGET_WALL_CLOCK_MS;
+      const overIterations = depth >= BUDGET_ITERATIONS;
+
+      if (overWallClock || overIterations) {
+        // Build a human-readable todo summary from current state
+        const todoItems = getState().session.todoListItems ?? [];
+        const done = todoItems.filter((t) => t.status === "completed").length;
+        const inProgress = todoItems.filter(
+          (t) => t.status === "in-progress",
+        ).length;
+        const remaining = todoItems.filter(
+          (t) => t.status === "not-started",
+        ).length;
+        const todoSummary =
+          todoItems.length > 0
+            ? `Plan progress: ${done}/${todoItems.length} done${inProgress > 0 ? `, ${inProgress} in-progress` : ""}, ${remaining} remaining`
+            : "";
+
+        console.warn(
+          `[AgentBudget] Stopping: elapsed=${elapsedMin}min iterations=${depth} overWallClock=${overWallClock} overIterations=${overIterations}`,
+        );
+        dispatch(
+          setInlineErrorMessage({
+            type: "budget-exceeded",
+            elapsedMin,
+            iterations: depth,
+            todoSummary,
+          }),
+        );
+        dispatch(setInactive());
+        return;
+      }
+    }
+
     const state = getState();
     const selectedChatModel = selectSelectedChatModel(state);
 
