@@ -78,12 +78,13 @@ export const callToolById = createAsyncThunk<
     }),
   );
 
-  // S-1a: Execution boundary interception — block first non-todo tool if no plan exists.
-  // todoListItems is undefined when manage_todo_list has never been called in this session.
+  // S-1a: Execution boundary interception — block first non-todo tool if no plan exists
+  // for the CURRENT agent run. hasPlanForCurrentRun resets to false at depth===0
+  // so old session plans cannot permanently bypass this check.
   const toolName = toolCallState.toolCall.function.name;
   if (
     toolName !== BuiltInToolNames.ManageTodoList &&
-    state.session.todoListItems === undefined
+    !state.session.hasPlanForCurrentRun
   ) {
     dispatch(
       updateToolCallOutput({
@@ -229,9 +230,15 @@ export const callToolById = createAsyncThunk<
     // Clear error tracking on success
     clearToolErrors(toolName);
 
-    // S-4: Auto-verification gate — inject get_problems result after edit tools
+    // S-4: Post-edit verification gate.
+    // Runs get_problems BEFORE marking acceptToolCall so the verification
+    // result enters context as part of the same tool-output turn.  If errors
+    // are found, the context item carries a mandatory FIX directive so the
+    // orchestrator (LLM next turn) is forced to address them before declaring done.
     let verifiedOutput: ContextItem[] = output;
     if (EDIT_TOOL_NAMES.has(toolName)) {
+      let verificationContent: string | null = null;
+      let hasErrors = false;
       try {
         const verifyResult = await extra.ideMessenger.request("tools/call", {
           toolCall: {
@@ -247,16 +254,42 @@ export const callToolById = createAsyncThunk<
           verifyResult.status === "success" &&
           verifyResult.content.contextItems?.length
         ) {
-          const verifyItems: ContextItem[] =
-            verifyResult.content.contextItems.map((item: ContextItem) => ({
-              ...item,
-              name: `[Auto-Verification] ${item.name}`,
-              description: `Post-edit verification: ${item.description}`,
-            }));
-          verifiedOutput = [...output, ...verifyItems];
+          verificationContent = verifyResult.content.contextItems
+            .map((item: ContextItem) => item.content)
+            .join("\n");
+          // Heuristic: if the content contains "error" or actual problem entries
+          // (not just "No problems found"), treat it as a failed verification.
+          hasErrors =
+            /\berror\b/i.test(verificationContent) &&
+            !/no problems found/i.test(verificationContent);
         }
       } catch {
-        // Non-fatal — verification is best-effort; proceed without it
+        // Non-fatal — proceed without verification if IPC fails
+      }
+
+      if (verificationContent !== null) {
+        const gateLabel = hasErrors
+          ? "⚠️ POST-EDIT VERIFICATION GATE: ERRORS DETECTED\n\n" +
+            "The edit introduced compile errors. You MUST fix ALL errors listed below " +
+            "before doing any other work or declaring the task complete.\n\n" +
+            verificationContent
+          : "✅ Post-edit verification passed — no errors found.\n\n" +
+            verificationContent;
+
+        verifiedOutput = [
+          ...output,
+          {
+            icon: hasErrors ? "problems" : "check",
+            name: hasErrors
+              ? "Verification Gate: FAILED"
+              : "Verification Gate: Passed",
+            description: hasErrors
+              ? "Fix required before continuing"
+              : "No errors detected",
+            content: gateLabel,
+            hidden: false,
+          },
+        ];
       }
     }
 

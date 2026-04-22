@@ -98,6 +98,26 @@ function parseStructuredResult(
 function stripResultBlock(text: string): string {
   return text.replace(/\s*---RESULT-V2---[\s\S]*?---END-V2---\s*$/, "").trim();
 }
+
+/**
+ * Synthesize a V2 result for code paths where the sub-agent never produced
+ * a RESULT-V2 block (timeout, max-iterations, or unrecoverable error).
+ */
+function synthesizeV2(
+  status: "Completed" | "Incomplete" | "Failed",
+  summary: string,
+  failureReason: string | null,
+  nextRecommendedAction: string,
+  modifiedFiles: string[],
+): SubAgentStructuredResult {
+  return {
+    summary,
+    evidence: modifiedFiles.map((f) => `Modified: ${f}`),
+    verificationRun: [],
+    failureReason,
+    nextRecommendedAction,
+  };
+}
 // ─────────────────────────────────────────────────────────────────────────────
 
 interface ToolCallParsed {
@@ -395,11 +415,27 @@ export const subAgentImpl: ToolImpl = async (args, extras) => {
   }
 
   if (timedOut) {
+    const modifiedFiles = extractModifiedFiles(allToolCallsExecuted);
+    const structured = synthesizeV2(
+      "Failed",
+      `Sub-agent timed out after ${TIMEOUT_MS / 1000}s.`,
+      `Execution exceeded the ${TIMEOUT_MS / 1000}s wall-clock limit.`,
+      "Split the task into smaller sub-tasks and re-dispatch.",
+      modifiedFiles,
+    );
     return [
       {
         name: "Sub-Agent Error",
         description: `Timed out: ${description}`,
-        content: `Sub-agent "${description}" timed out after ${TIMEOUT_MS / 1000}s. Consider splitting the task into smaller sub-tasks.`,
+        content: buildResultContent(
+          description,
+          structured.summary,
+          iterations,
+          toolNamesUsed,
+          modifiedFiles,
+          "Failed",
+          structured,
+        ),
       },
     ];
   }
@@ -415,8 +451,23 @@ export const subAgentImpl: ToolImpl = async (args, extras) => {
     ? "Incomplete"
     : "Completed";
 
-  // S-3: parse structured result block from the sub-agent's final response
-  const structured = parseStructuredResult(finalResponse);
+  // S-3: parse structured result block from the sub-agent's final response.
+  // Fall back to synthesized V2 when the block is absent (max-iter path) so
+  // ALL exit paths produce the same homogeneous protocol.
+  const structuredFromModel = parseStructuredResult(finalResponse);
+  const structured: SubAgentStructuredResult =
+    structuredFromModel ??
+    synthesizeV2(
+      status,
+      stripResultBlock(finalResponse) || finalResponse,
+      hitMaxIterations
+        ? `Reached the maximum iteration limit (${MAX_SUB_AGENT_ITERATIONS}) without completing the task.`
+        : null,
+      hitMaxIterations
+        ? "Re-dispatch with a narrower, more focused sub-task."
+        : "",
+      modifiedFiles,
+    );
 
   return [
     {

@@ -126,11 +126,38 @@ export const streamNormalInput = createAsyncThunk<
         const todoSummary =
           todoItems.length > 0
             ? `Plan progress: ${done}/${todoItems.length} done${inProgress > 0 ? `, ${inProgress} in-progress` : ""}, ${remaining} remaining`
-            : "";
+            : "No task plan was created for this run.";
+
+        const stopReason = overWallClock
+          ? `Wall-clock budget exceeded (${elapsedMin} min / ${Math.round(BUDGET_WALL_CLOCK_MS / 60_000)} min limit)`
+          : `Iteration budget exceeded (${depth} iterations / ${BUDGET_ITERATIONS} limit)`;
 
         console.warn(
           `[AgentBudget] Stopping: elapsed=${elapsedMin}min iterations=${depth} overWallClock=${overWallClock} overIterations=${overIterations}`,
         );
+
+        // S-2a: Write a structured stop record into the conversation history
+        // so it is visible in the transcript, result cards, and any future replay.
+        const budgetStopMessage = {
+          role: "assistant" as const,
+          content:
+            `**⚠️ Agent Budget Stop**\n\n` +
+            `**Reason**: ${stopReason}\n\n` +
+            `**${todoSummary}**\n\n` +
+            (todoItems.length > 0
+              ? todoItems
+                  .map(
+                    (t) =>
+                      `- [${t.status === "completed" ? "x" : t.status === "in-progress" ? "~" : " "}] ${t.title}`,
+                  )
+                  .join("\n") + "\n\n"
+              : "") +
+            `**Remaining Risk**: Work may be incomplete. Review the last tool call outputs before continuing.\n\n` +
+            `**Next Recommended Action**: Send a follow-up message to resume from the current state, or start a new session with a more focused scope.`,
+        };
+        dispatch(streamUpdate([budgetStopMessage]));
+
+        // Also show a UI banner for immediate visibility
         dispatch(
           setInlineErrorMessage({
             type: "budget-exceeded",

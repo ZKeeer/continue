@@ -239,6 +239,12 @@ type SessionState = {
   todoListItems?: TodoItem[];
   /** Wall-clock timestamp (ms) when the current agent run started (depth===0). Used for budget tracking (S-2a). */
   agentRunStartTime?: number;
+  /**
+   * S-1a: True only when manage_todo_list has been called in the CURRENT agent run.
+   * Resets to false at depth===0 (setAgentRunStartTime). Prevents old session plans
+   * from permanently bypassing the plan-first interception.
+   */
+  hasPlanForCurrentRun: boolean;
 };
 
 export interface TodoItem {
@@ -266,6 +272,7 @@ export const INITIAL_SESSION_STATE: SessionState = {
   newestToolbarPreviewForInput: {},
   compactionLoading: {},
   todoListItems: undefined,
+  hasPlanForCurrentRun: false,
 };
 
 export const sessionSlice = createSlice({
@@ -720,6 +727,7 @@ export const sessionSlice = createSlice({
       state.contextPercentage = undefined;
       state.todoListItems = undefined;
       state.agentRunStartTime = undefined;
+      state.hasPlanForCurrentRun = false;
 
       if (payload) {
         state.history = payload.history as any;
@@ -901,6 +909,7 @@ export const sessionSlice = createSlice({
           const items = toolCallState.parsedArgs?.items;
           if (Array.isArray(items)) {
             state.todoListItems = items;
+            state.hasPlanForCurrentRun = true;
           }
         }
       }
@@ -1042,6 +1051,8 @@ export const sessionSlice = createSlice({
       action: PayloadAction<number | undefined>,
     ) => {
       state.agentRunStartTime = action.payload;
+      // S-1a: Reset per-run plan flag whenever a new top-level agent run begins
+      state.hasPlanForCurrentRun = false;
     },
   },
   selectors: {
