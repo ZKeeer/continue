@@ -12,10 +12,20 @@ export class ToolCallParseError extends Error {
     const argSnippet = rawArgs
       ? rawArgs.substring(0, 200) + (rawArgs.length > 200 ? "..." : "")
       : "(empty)";
+
+    // When the payload is very large (e.g. entire file contents embedded in JSON),
+    // LLMs frequently produce malformed JSON. Steer the model toward a safer path.
+    const largePayloadHint =
+      (rawArgs?.length ?? 0) > 10_000
+        ? " Tip: your arguments are very large. For writing large file content, " +
+          "use run_terminal_command (e.g. writing to a temp file via heredoc or tee) " +
+          "instead of embedding the whole content in a tool call."
+        : "";
+
     super(
       `Failed to parse arguments for tool "${toolName || "unknown"}". ` +
         `Raw arguments: ${argSnippet}. ` +
-        `Please provide valid JSON arguments.`,
+        `Please provide valid JSON arguments.${largePayloadHint}`,
     );
     this.name = "ToolCallParseError";
   }

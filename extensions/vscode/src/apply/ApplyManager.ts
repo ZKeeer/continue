@@ -221,16 +221,34 @@ export class ApplyManager {
       : editor.selection;
 
     if (streaming) {
-      await verticalDiffManager.streamEdit({
-        input: prompt,
-        llm,
-        streamId,
-        range: rangeToApplyTo,
-        newCode: text,
-        toolCallId,
-        rulesToInclude: undefined, // No rules for apply
-        isApply: true,
-      });
+      try {
+        await verticalDiffManager.streamEdit({
+          input: prompt,
+          llm,
+          streamId,
+          range: rangeToApplyTo,
+          newCode: text,
+          toolCallId,
+          rulesToInclude: undefined, // No rules for apply
+          isApply: true,
+        });
+      } catch (e: any) {
+        if (e?.message?.includes("Token limit reached")) {
+          // File is too large for LLM-based diff streaming.
+          // Fall back to direct Myers diff (same path as non-streaming).
+          const diffLinesGenerator = generateLines(
+            myersDiff(editor.document.getText(), text),
+          );
+          await verticalDiffManager.streamDiffLines(
+            diffLinesGenerator,
+            true,
+            streamId,
+            toolCallId,
+          );
+        } else {
+          throw e;
+        }
+      }
     } else {
       // Non-streaming: accumulate LLM output, then apply via Myers diff
       const finalContent = await this.generateAppliedContent(

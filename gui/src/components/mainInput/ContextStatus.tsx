@@ -39,7 +39,7 @@ const ContextStatus = () => {
   }, [history.length, selectedChatModel]);
 
   const compactConversation = useCompactConversation();
-  if (!isPruned && percent < 60) {
+  if (!contextLength) {
     return null;
   }
 
