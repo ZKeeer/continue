@@ -523,6 +523,8 @@ interface ToolCallState {
   output?: ContextItem[];
   tool?: Tool;
   mcpUiState?: McpUiState;
+  /** Provider-assigned streaming index (e.g. OpenAI parallel tool call index). Used to correctly map subsequent argument fragments when duplicate calls have been filtered out of toolCallStates. */
+  providerIndex?: number;
 }
 
 interface Reasoning {

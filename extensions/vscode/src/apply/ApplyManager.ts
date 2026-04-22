@@ -236,8 +236,34 @@ export class ApplyManager {
         if (e?.message?.includes("Token limit reached")) {
           // File is too large for LLM-based diff streaming.
           // Fall back to direct Myers diff (same path as non-streaming).
+          // When applying to a selection range, `text` is only the new content
+          // for that range — we must splice it back into the full file before
+          // diffing, otherwise Myers diff would replace the whole file with a
+          // partial snippet.
+          const doc = editor.document;
+          const isFullFile =
+            rangeToApplyTo.isEqual(fullEditorRange) ||
+            rangeToApplyTo.contains(fullEditorRange);
+          let fullContent: string;
+          if (isFullFile) {
+            fullContent = text;
+          } else {
+            const beforeRange = doc.getText(
+              new vscode.Range(new vscode.Position(0, 0), rangeToApplyTo.start),
+            );
+            const afterRange = doc.getText(
+              new vscode.Range(
+                rangeToApplyTo.end,
+                new vscode.Position(
+                  doc.lineCount - 1,
+                  doc.lineAt(doc.lineCount - 1).text.length,
+                ),
+              ),
+            );
+            fullContent = beforeRange + text + afterRange;
+          }
           const diffLinesGenerator = generateLines(
-            myersDiff(editor.document.getText(), text),
+            myersDiff(doc.getText(), fullContent),
           );
           await verticalDiffManager.streamDiffLines(
             diffLinesGenerator,

@@ -130,9 +130,18 @@ function applyToolCallDelta(
     );
   } else if (toolCallDelta.index !== undefined) {
     // No ID but has index (OpenAI parallel tool call fragments)
-    // Use index directly to locate the correct tool call
-    existingStateIndex =
-      toolCallDelta.index < toolCallStates.length ? toolCallDelta.index : -1;
+    // Search by the original provider index stored in providerIndex, NOT by
+    // array position, because filterMultipleEditToolCalls may have removed
+    // earlier entries and shifted the array offsets.
+    existingStateIndex = toolCallStates.findIndex(
+      (s) => s.providerIndex === toolCallDelta.index,
+    );
+    // If the index doesn't match any kept state (i.e. it belonged to a
+    // filtered duplicate call), skip this delta entirely to avoid creating a
+    // ghost state.
+    if (existingStateIndex === -1 && toolCallStates.length > 0) {
+      return;
+    }
   } else {
     // No ID and no index - fall back to most recently added tool call
     existingStateIndex = toolCallStates.length - 1;

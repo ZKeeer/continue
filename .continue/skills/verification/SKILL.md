@@ -34,3 +34,17 @@ After making code changes, ALWAYS verify before claiming success:
 - Documentation-only changes (.md files)
 - Configuration file changes (.json, .yaml) without schema validation
 - When explicitly told "don't verify"
+
+---
+
+## Sub-Agent Failure Recovery
+
+When a `sub_agent` tool call returns content that indicates failure (timeout message, "reached maximum iterations", or explicit error):
+
+1. **Read the failure reason** before acting
+2. Choose a recovery strategy based on the reason:
+   - `timed out` → Split into smaller sub-tasks and re-dispatch each separately
+   - `reached maximum iterations` → The task is too complex; handle the critical steps yourself
+   - Tool error inside sub-agent → Note which step failed, tell the user, ask whether to continue
+3. **Do NOT** silently retry the same prompt — it will fail the same way
+4. **Do NOT** take over and silently redo all the work — inform the user of what happened first

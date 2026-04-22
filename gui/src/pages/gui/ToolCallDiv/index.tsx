@@ -8,6 +8,7 @@ import FunctionSpecificToolCallDiv from "./FunctionSpecificToolCallDiv";
 import { GroupedToolCallHeader } from "./GroupedToolCallHeader";
 import { McpAppRenderer } from "./MCPAppRenderer";
 import { SimpleToolCallUI } from "./SimpleToolCallUI";
+import { SubAgentDisplay } from "./SubAgent";
 import { ToolCallDisplay } from "./ToolCallDisplay";
 import { getIconByName, getStatusIcon } from "./utils";
 
@@ -57,6 +58,16 @@ export function ToolCallDiv({
         >
           <McpAppRenderer toolCallState={toolCallState} />
         </ToolCallDisplay>
+      );
+    }
+
+    // Sub-agent gets a dedicated display with inline progress and collapsible result
+    if (functionName === BuiltInToolNames.SubAgent) {
+      return (
+        <SubAgentDisplay
+          toolCallState={toolCallState}
+          historyIndex={historyIndex}
+        />
       );
     }
 

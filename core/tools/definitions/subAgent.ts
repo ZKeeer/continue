@@ -27,21 +27,34 @@ export const subAgentTool: Tool = {
           description:
             "Detailed instructions for the sub-agent. Include all necessary context, file paths, and expected outcomes. The sub-agent cannot ask clarifying questions.",
         },
+        allowedTools: {
+          type: "array",
+          items: { type: "string" },
+          description:
+            'Optional whitelist of tool names the sub-agent is allowed to use. If omitted, all available tools are enabled. Example: ["read_file", "grep_search"] for a read-only agent.',
+        },
       },
     },
   },
   defaultToolPolicy: "allowedWithoutPermission",
   systemMessageDescription: {
-    prefix: `To dispatch independent tasks to a sub-agent, use the ${BuiltInToolNames.SubAgent} tool. The sub-agent executes autonomously and returns results.
+    prefix: `To dispatch independent tasks to a sub-agent, use the ${BuiltInToolNames.SubAgent} tool. The sub-agent executes autonomously and returns a structured result (summary + files modified + tools used).
 
-WHEN TO USE SUB-AGENTS (strongly recommended):
-- Exploring or searching across multiple files/directories (e.g., finding all usages, understanding code structure)
-- Reading and analyzing large files or many files at once
-- Independent research tasks that don't need results from other ongoing work
+WHEN TO USE SUB-AGENTS (mandatory in these situations):
+- You need to explore or investigate 2+ independent, unrelated problems simultaneously
+- You need to read and analyze 3+ unrelated files to make a decision
+- The task is clearly separable into "information gathering" and "implementation" phases — dispatch the gathering phase first
 - Running tests, linting, or build commands and interpreting results
 - Any multi-step investigation that would consume significant context
 
-SUB-AGENTS HELP CONSERVE YOUR CONTEXT WINDOW. Prefer dispatching a sub-agent for exploratory work instead of doing it yourself. You can continue working on other tasks while the sub-agent completes its work.
+PARALLEL DISPATCH (V4): You MAY issue multiple ${BuiltInToolNames.SubAgent} calls in the SAME response turn. All calls execute concurrently. Use this when tasks are fully independent (no data dependency). Example: exploring two unrelated modules simultaneously. Each sub-agent call will resolve independently and all results appear before the next LLM turn.
+
+SUB-AGENTS HELP CONSERVE YOUR CONTEXT WINDOW. Prefer dispatching a sub-agent for exploratory work instead of doing it yourself.
+
+HANDLING SUB-AGENT RESULTS:
+- Check the "Files Modified" section — if files are already modified, do not re-edit them unnecessarily
+- If the result indicates failure or timeout, split the task into smaller prompts and re-dispatch
+- Do NOT silently retry the exact same prompt on failure — it will fail again
 
 Examples:`,
     exampleArgs: [

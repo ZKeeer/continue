@@ -54,6 +54,8 @@ export function addToolCallDeltaToState(
 
   const [_, parsedArgs] = incrementalParseJson(mergedArgs || "{}");
 
+  const providerIndex = currentState?.providerIndex ?? toolCallDelta.index;
+
   return {
     status: "generating",
     toolCall: {
@@ -66,6 +68,7 @@ export function addToolCallDeltaToState(
     },
     toolCallId: callId,
     parsedArgs,
+    ...(providerIndex !== undefined ? { providerIndex } : {}),
   };
 }
 
