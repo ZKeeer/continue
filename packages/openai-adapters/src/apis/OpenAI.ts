@@ -32,6 +32,174 @@ import {
   toResponsesParams,
 } from "./openaiResponses.js";
 
+function truncateForDebug(value: string, maxLength = 160): string {
+  return value.length > maxLength
+    ? `${value.slice(0, maxLength)}...<truncated ${value.length - maxLength} chars>`
+    : value;
+}
+
+function summarizeMessageContentForDebug(content: unknown): Record<string, unknown> {
+  if (typeof content === "string") {
+    return {
+      contentType: "string",
+      textLength: content.length,
+      preview: truncateForDebug(content),
+    };
+  }
+
+  if (Array.isArray(content)) {
+    return {
+      contentType: "array",
+      partCount: content.length,
+      partTypes: content.map((part: any) => part?.type ?? typeof part),
+      textLength: content.reduce((total, part: any) => {
+        if (part?.type === "text" && typeof part.text === "string") {
+          return total + part.text.length;
+        }
+        return total;
+      }, 0),
+    };
+  }
+
+  return {
+    contentType: content == null ? String(content) : typeof content,
+  };
+}
+
+type DebugMessageSummary = {
+  index: number;
+  role: unknown;
+  contentType?: unknown;
+  textLength?: number;
+  preview?: string;
+  partCount?: number;
+  partTypes?: unknown[];
+  hasToolCalls: boolean;
+  toolCallCount: number;
+  hasReasoning: boolean;
+  hasReasoningContent: boolean;
+  reasoningContentLength?: number;
+  reasoningDetailsCount: number;
+};
+
+function summarizeChatBodyForDebug(body: ChatCompletionCreateParams): Record<string, unknown> {
+  const messages = Array.isArray(body.messages) ? body.messages : [];
+  const messageSummaries: DebugMessageSummary[] = messages.map(
+    (message: any, index) => {
+      const contentSummary = summarizeMessageContentForDebug(
+        message?.content,
+      ) as DebugMessageSummary;
+      return {
+        ...contentSummary,
+        index,
+        role: message?.role,
+        hasToolCalls:
+          Array.isArray(message?.tool_calls) && message.tool_calls.length > 0,
+        toolCallCount: Array.isArray(message?.tool_calls)
+          ? message.tool_calls.length
+          : 0,
+        hasReasoning: Object.prototype.hasOwnProperty.call(
+          message ?? {},
+          "reasoning",
+        ),
+        hasReasoningContent: Object.prototype.hasOwnProperty.call(
+          message ?? {},
+          "reasoning_content",
+        ),
+        reasoningContentLength:
+          typeof message?.reasoning_content === "string"
+            ? message.reasoning_content.length
+            : undefined,
+        reasoningDetailsCount: Array.isArray(message?.reasoning_details)
+          ? message.reasoning_details.length
+          : 0,
+      };
+    },
+  );
+
+  const suspiciousFields = new Set<string>();
+  if (Object.prototype.hasOwnProperty.call(body, "stream_options")) {
+    suspiciousFields.add("stream_options");
+  }
+  if (Object.prototype.hasOwnProperty.call(body, "prediction")) {
+    suspiciousFields.add("prediction");
+  }
+  if (Object.prototype.hasOwnProperty.call(body, "tool_choice")) {
+    suspiciousFields.add("tool_choice");
+  }
+  if (Array.isArray(body.tools) && body.tools.length > 0) {
+    suspiciousFields.add("tools");
+  }
+  if (Object.prototype.hasOwnProperty.call(body, "parallel_tool_calls")) {
+    suspiciousFields.add("parallel_tool_calls");
+  }
+  if (messageSummaries.some((message) => message.hasReasoning)) {
+    suspiciousFields.add("message.reasoning");
+  }
+  if (messageSummaries.some((message) => message.hasReasoningContent)) {
+    suspiciousFields.add("message.reasoning_content");
+  }
+  if (
+    messageSummaries.some(
+      (message) =>
+        typeof message.reasoningDetailsCount === "number" &&
+        message.reasoningDetailsCount > 0,
+    )
+  ) {
+    suspiciousFields.add("message.reasoning_details");
+  }
+
+  return {
+    model: body.model,
+    stream: body.stream,
+    maxTokens: (body as any).max_tokens,
+    maxCompletionTokens: (body as any).max_completion_tokens,
+    temperature: body.temperature,
+    topP: body.top_p,
+    stopCount: Array.isArray(body.stop) ? body.stop.length : body.stop ? 1 : 0,
+    toolChoice: body.tool_choice,
+    toolCount: Array.isArray(body.tools) ? body.tools.length : 0,
+    parallelToolCalls: (body as any).parallel_tool_calls,
+    hasPrediction: Object.prototype.hasOwnProperty.call(body, "prediction"),
+    hasStreamOptions: Object.prototype.hasOwnProperty.call(body, "stream_options"),
+    messageCount: messageSummaries.length,
+    totalMessageTextLength: messageSummaries.reduce(
+      (total, message) =>
+        total + (typeof message.textLength === "number" ? message.textLength : 0),
+      0,
+    ),
+    messageSummaries,
+    suspiciousFields: [...suspiciousFields],
+  };
+}
+
+function summarizeOpenAIErrorForDebug(error: unknown): Record<string, unknown> {
+  const err = error as any;
+  const responseHeaders =
+    err?.headers && typeof err.headers.entries === "function"
+      ? Object.fromEntries(
+          Array.from(err.headers.entries()) as [string, string][],
+        )
+      : undefined;
+
+  return {
+    name: err?.name,
+    message: err?.message,
+    status: err?.status ?? err?.response?.status,
+    code: err?.code,
+    type: err?.type,
+    param: err?.param,
+    requestId: err?.request_id ?? err?.requestId,
+    responseHeaders,
+    causeMessage: err?.cause?.message,
+    errorPayload: err?.error,
+  };
+}
+
+function cloneChatBodyForDebug<T extends ChatCompletionCreateParams>(body: T): T {
+  return JSON.parse(JSON.stringify(body));
+}
+
 export class OpenAIApi implements BaseLlmApi {
   openai: OpenAI;
   apiBase: string = "https://api.openai.com/v1/";
@@ -126,6 +294,28 @@ export class OpenAIApi implements BaseLlmApi {
     };
   }
 
+  private logChatCompletionFailure(
+    operation: "chatCompletionNonStream" | "chatCompletionStream",
+    error: unknown,
+    originalBody: ChatCompletionCreateParams,
+    finalBody: ChatCompletionCreateParams,
+  ) {
+    console.error(
+      `[OpenAIApi] ${operation} failed`,
+      JSON.stringify(
+        {
+          apiBase: this.apiBase,
+          operation,
+          error: summarizeOpenAIErrorForDebug(error),
+          originalRequest: summarizeChatBodyForDebug(originalBody),
+          finalRequest: summarizeChatBodyForDebug(finalBody),
+        },
+        null,
+        2,
+      ),
+    );
+  }
+
   async chatCompletionNonStream(
     body: ChatCompletionCreateParamsNonStreaming,
     signal: AbortSignal,
@@ -134,13 +324,22 @@ export class OpenAIApi implements BaseLlmApi {
       const response = await this.responsesNonStream(body, signal);
       return responseToChatCompletion(response);
     }
-    const response = await this.openai.chat.completions.create(
-      this.modifyChatBody(body),
-      {
+    const originalBody = cloneChatBodyForDebug(body);
+    const finalBody = this.modifyChatBody(body);
+    try {
+      const response = await this.openai.chat.completions.create(finalBody, {
         signal,
-      },
-    );
-    return response;
+      });
+      return response;
+    } catch (error) {
+      this.logChatCompletionFailure(
+        "chatCompletionNonStream",
+        error,
+        originalBody,
+        finalBody,
+      );
+      throw error;
+    }
   }
 
   async *chatCompletionStream(
@@ -153,25 +352,34 @@ export class OpenAIApi implements BaseLlmApi {
       }
       return;
     }
-    const response = await this.openai.chat.completions.create(
-      this.modifyChatBody(body),
-      {
+    const originalBody = cloneChatBodyForDebug(body);
+    const finalBody = this.modifyChatBody(body);
+    try {
+      const response = await this.openai.chat.completions.create(finalBody, {
         signal,
-      },
-    );
-    let lastChunkWithUsage: ChatCompletionChunk | undefined;
-    for await (const result of response) {
-      // Check if this chunk contains usage information
-      if (result.usage) {
-        // Store it to emit after all content chunks
-        lastChunkWithUsage = result;
-      } else {
-        yield result;
+      });
+      let lastChunkWithUsage: ChatCompletionChunk | undefined;
+      for await (const result of response) {
+        // Check if this chunk contains usage information
+        if (result.usage) {
+          // Store it to emit after all content chunks
+          lastChunkWithUsage = result;
+        } else {
+          yield result;
+        }
       }
-    }
-    // Emit the usage chunk at the end if we have one
-    if (lastChunkWithUsage) {
-      yield lastChunkWithUsage;
+      // Emit the usage chunk at the end if we have one
+      if (lastChunkWithUsage) {
+        yield lastChunkWithUsage;
+      }
+    } catch (error) {
+      this.logChatCompletionFailure(
+        "chatCompletionStream",
+        error,
+        originalBody,
+        finalBody,
+      );
+      throw error;
     }
   }
   async completionNonStream(

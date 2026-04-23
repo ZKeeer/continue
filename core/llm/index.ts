@@ -88,6 +88,183 @@ export function isModelInstaller(provider: any): provider is ModelInstaller {
 
 type InteractionStatus = "in_progress" | "success" | "error" | "cancelled";
 
+function truncateForDebug(value: string, maxLength = 160): string {
+  return value.length > maxLength
+    ? `${value.slice(0, maxLength)}...<truncated ${value.length - maxLength} chars>`
+    : value;
+}
+
+function summarizeMessageContentForDebug(content: unknown): Record<string, unknown> {
+  if (typeof content === "string") {
+    return {
+      contentType: "string",
+      textLength: content.length,
+      preview: truncateForDebug(content),
+    };
+  }
+
+  if (Array.isArray(content)) {
+    return {
+      contentType: "array",
+      partCount: content.length,
+      partTypes: content.map((part: any) => part?.type ?? typeof part),
+      textLength: content.reduce((total, part: any) => {
+        if (part?.type === "text" && typeof part.text === "string") {
+          return total + part.text.length;
+        }
+        return total;
+      }, 0),
+    };
+  }
+
+  if (content == null) {
+    return {
+      contentType: String(content),
+    };
+  }
+
+  return {
+    contentType: typeof content,
+  };
+}
+
+type DebugMessageSummary = {
+  index: number;
+  role: unknown;
+  contentType?: unknown;
+  textLength?: number;
+  preview?: string;
+  partCount?: number;
+  partTypes?: unknown[];
+  hasName: boolean;
+  hasToolCalls: boolean;
+  toolCallCount: number;
+  hasReasoning: boolean;
+  hasReasoningContent: boolean;
+  reasoningContentLength?: number;
+  reasoningDetailsCount: number;
+};
+
+function summarizeChatCompletionBodyForDebug(
+  body?: ChatCompletionCreateParams,
+): Record<string, unknown> | undefined {
+  if (!body) {
+    return undefined;
+  }
+
+  const messages = Array.isArray(body.messages) ? body.messages : [];
+  const messageSummaries: DebugMessageSummary[] = messages.map(
+    (message: any, index) => {
+      const contentSummary = summarizeMessageContentForDebug(
+        message?.content,
+      ) as DebugMessageSummary;
+      return {
+        ...contentSummary,
+        index,
+        role: message?.role,
+        hasName: Object.prototype.hasOwnProperty.call(message ?? {}, "name"),
+        hasToolCalls:
+          Array.isArray(message?.tool_calls) && message.tool_calls.length > 0,
+        toolCallCount: Array.isArray(message?.tool_calls)
+          ? message.tool_calls.length
+          : 0,
+        hasReasoning: Object.prototype.hasOwnProperty.call(
+          message ?? {},
+          "reasoning",
+        ),
+        hasReasoningContent: Object.prototype.hasOwnProperty.call(
+          message ?? {},
+          "reasoning_content",
+        ),
+        reasoningContentLength:
+          typeof message?.reasoning_content === "string"
+            ? message.reasoning_content.length
+            : undefined,
+        reasoningDetailsCount: Array.isArray(message?.reasoning_details)
+          ? message.reasoning_details.length
+          : 0,
+      };
+    },
+  );
+
+  const suspiciousFields = new Set<string>();
+  if (Object.prototype.hasOwnProperty.call(body, "stream_options")) {
+    suspiciousFields.add("stream_options");
+  }
+  if (Object.prototype.hasOwnProperty.call(body, "prediction")) {
+    suspiciousFields.add("prediction");
+  }
+  if (Object.prototype.hasOwnProperty.call(body, "tool_choice")) {
+    suspiciousFields.add("tool_choice");
+  }
+  if (Array.isArray(body.tools) && body.tools.length > 0) {
+    suspiciousFields.add("tools");
+  }
+  if (Object.prototype.hasOwnProperty.call(body, "parallel_tool_calls")) {
+    suspiciousFields.add("parallel_tool_calls");
+  }
+  if (messageSummaries.some((message) => message.hasReasoning)) {
+    suspiciousFields.add("message.reasoning");
+  }
+  if (messageSummaries.some((message) => message.hasReasoningContent)) {
+    suspiciousFields.add("message.reasoning_content");
+  }
+  if (
+    messageSummaries.some(
+      (message) =>
+        typeof message.reasoningDetailsCount === "number" &&
+        message.reasoningDetailsCount > 0,
+    )
+  ) {
+    suspiciousFields.add("message.reasoning_details");
+  }
+
+  return {
+    model: body.model,
+    stream: body.stream,
+    maxTokens: (body as any).max_tokens,
+    maxCompletionTokens: (body as any).max_completion_tokens,
+    temperature: body.temperature,
+    topP: body.top_p,
+    stopCount: Array.isArray(body.stop) ? body.stop.length : body.stop ? 1 : 0,
+    toolChoice: body.tool_choice,
+    toolCount: Array.isArray(body.tools) ? body.tools.length : 0,
+    parallelToolCalls: (body as any).parallel_tool_calls,
+    hasPrediction: Object.prototype.hasOwnProperty.call(body, "prediction"),
+    hasStreamOptions: Object.prototype.hasOwnProperty.call(body, "stream_options"),
+    messageCount: messageSummaries.length,
+    totalMessageTextLength: messageSummaries.reduce(
+      (total, message) =>
+        total + (typeof message.textLength === "number" ? message.textLength : 0),
+      0,
+    ),
+    messageSummaries,
+    suspiciousFields: [...suspiciousFields],
+  };
+}
+
+function summarizeErrorForDebug(error: unknown): Record<string, unknown> {
+  const err = error as any;
+  const responseHeaders =
+    err?.headers && typeof err.headers.entries === "function"
+      ? Object.fromEntries(
+          Array.from(err.headers.entries()) as [string, string][],
+        )
+      : undefined;
+
+  return {
+    name: err?.name,
+    message: err?.message,
+    status: err?.status ?? err?.response?.status,
+    code: err?.code,
+    type: err?.type,
+    param: err?.param,
+    requestId: err?.request_id ?? err?.requestId,
+    causeMessage: err?.cause?.message,
+    responseHeaders,
+  };
+}
+
 export abstract class BaseLLM implements ILLM {
   static providerName: string;
   static defaultOptions: Partial<LLMOptions> | undefined = undefined;
@@ -406,7 +583,7 @@ export abstract class BaseLLM implements ILLM {
         });
         return "cancelled";
       } else {
-        console.log(error);
+        console.log("LLM request failed:", summarizeErrorForDebug(error));
         interaction?.logItem({
           kind: "error",
           name: error.name,
@@ -1193,6 +1370,7 @@ export abstract class BaseLLM implements ILLM {
     const completion: string[] = [];
     let usage: Usage | undefined = undefined;
     let citations: null | string[] = null;
+    let requestBodySummary: Record<string, unknown> | undefined;
 
     try {
       if (this.templateMessages) {
@@ -1216,6 +1394,7 @@ export abstract class BaseLLM implements ILLM {
             includeReasoningContentField: this.supportsReasoningContentField,
           });
           body = this.modifyChatBody(body);
+          requestBodySummary = summarizeChatCompletionBodyForDebug(body);
 
           if (logEnabled) {
             interaction?.logItem({
@@ -1316,6 +1495,8 @@ export abstract class BaseLLM implements ILLM {
         useOpenAIAdapter: this.shouldUseOpenAIAdapter("streamChat"),
         streamEnabled: completionOptions.stream !== false,
         templateMessages: !!this.templateMessages,
+        requestBody: requestBodySummary,
+        errorSummary: summarizeErrorForDebug(e),
       });
 
       status = this._logEnd(
