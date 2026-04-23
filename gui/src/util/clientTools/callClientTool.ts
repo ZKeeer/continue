@@ -37,6 +37,39 @@ export async function callClientTool(
     let output: ClientToolOutput;
     switch (toolCall.function.name) {
       case BuiltInToolNames.EditExistingFile:
+        console.log("[ClientTool] invoking edit_existing_file", {
+          toolCallId: toolCall.id,
+          rawArgsLength:
+            typeof toolCall.function.arguments === "string"
+              ? toolCall.function.arguments.length
+              : undefined,
+          parsedArgKeys:
+            parsedArgs &&
+            typeof parsedArgs === "object" &&
+            !Array.isArray(parsedArgs)
+              ? Object.keys(parsedArgs).sort()
+              : [],
+          hasFilepath:
+            !!parsedArgs &&
+            typeof parsedArgs === "object" &&
+            "filepath" in (parsedArgs as Record<string, unknown>),
+          hasChanges:
+            !!parsedArgs &&
+            typeof parsedArgs === "object" &&
+            "changes" in (parsedArgs as Record<string, unknown>),
+          filepathType:
+            parsedArgs &&
+            typeof parsedArgs === "object" &&
+            "filepath" in (parsedArgs as Record<string, unknown>)
+              ? typeof (parsedArgs as Record<string, unknown>).filepath
+              : "missing",
+          changesType:
+            parsedArgs &&
+            typeof parsedArgs === "object" &&
+            "changes" in (parsedArgs as Record<string, unknown>)
+              ? typeof (parsedArgs as Record<string, unknown>).changes
+              : "missing",
+        });
         output = await editToolImpl(parsedArgs, toolCall.id, extras);
         break;
       case BuiltInToolNames.SingleFindAndReplace:
