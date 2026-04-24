@@ -47,7 +47,53 @@ const MAX_AGENT_ITERATIONS = 50;
 
 // S-2a: Budget limits — hard stop with graceful progress report
 const BUDGET_WALL_CLOCK_MS = 15 * 60 * 1000; // 15 minutes per agent run
-const BUDGET_ITERATIONS = 35;               // LLM rounds before graceful stop
+const BUDGET_ITERATIONS = 35; // LLM rounds before graceful stop
+
+function summarizeToolCallStateForDebug(toolCallState: any) {
+  const args = toolCallState?.toolCall?.function?.arguments;
+  let parseOk = false;
+  if (typeof args === "string") {
+    try {
+      JSON.parse(args);
+      parseOk = true;
+    } catch {
+      parseOk = false;
+    }
+  }
+
+  return {
+    toolCallId: toolCallState?.toolCallId,
+    toolName: toolCallState?.toolCall?.function?.name,
+    status: toolCallState?.status,
+    providerIndex: toolCallState?.providerIndex,
+    argsLength: typeof args === "string" ? args.length : undefined,
+    parseOk,
+    argsPreview: typeof args === "string" ? args.slice(0, 160) : undefined,
+  };
+}
+
+function summarizeStreamMessagesForDebug(messages: any[]) {
+  return messages
+    .filter(
+      (message) => message?.role === "assistant" && message?.toolCalls?.length,
+    )
+    .map((message) => ({
+      role: message.role,
+      toolCalls: message.toolCalls.map((toolCall: any) => ({
+        toolCallId: toolCall.id,
+        providerIndex: toolCall.index,
+        toolName: toolCall.function?.name,
+        argsLength:
+          typeof toolCall.function?.arguments === "string"
+            ? toolCall.function.arguments.length
+            : undefined,
+        argsPreview:
+          typeof toolCall.function?.arguments === "string"
+            ? toolCall.function.arguments.slice(0, 160)
+            : undefined,
+      })),
+    }));
+}
 
 /**
  * Builds completion options with reasoning configuration based on session state and model capabilities.
@@ -343,9 +389,31 @@ export const streamNormalInput = createAsyncThunk<
         );
       }
 
+      let iteration = 0;
       let next = await gen.next();
       while (!next.done) {
+        iteration++;
+        const streamedToolCalls = summarizeStreamMessagesForDebug(next.value);
+        if (streamedToolCalls.length > 0) {
+          console.log(
+            `[StreamNormalInput] streamUpdate ${JSON.stringify({
+              iteration,
+              streamedToolCalls,
+            })}`,
+          );
+        }
         if (!getState().session.isStreaming) {
+          console.log(
+            `[StreamNormalInput] aborting due to isStreaming=false ${JSON.stringify(
+              {
+                iteration,
+                aborted: streamAborter.signal.aborted,
+                currentToolCalls: selectCurrentToolCalls(getState()).map(
+                  summarizeToolCallStateForDebug,
+                ),
+              },
+            )}`,
+          );
           dispatch(abortStream());
           break;
         }
@@ -353,6 +421,19 @@ export const streamNormalInput = createAsyncThunk<
         dispatch(streamUpdate(next.value));
         next = await gen.next();
       }
+
+      console.log(
+        `[StreamNormalInput] generator exit ${JSON.stringify({
+          done: next.done,
+          iteration,
+          aborted: streamAborter.signal.aborted,
+          isStreaming: getState().session.isStreaming,
+          returnedPromptLog: !!next.value,
+          currentToolCalls: selectCurrentToolCalls(getState()).map(
+            summarizeToolCallStateForDebug,
+          ),
+        })}`,
+      );
 
       // Attach prompt log and end thinking for reasoning models
       if (next.done && next.value) {
@@ -384,6 +465,16 @@ export const streamNormalInput = createAsyncThunk<
         }
       }
     } catch (e) {
+      console.log(
+        `[StreamNormalInput] generator threw ${JSON.stringify({
+          aborted: streamAborter.signal.aborted,
+          isStreaming: getState().session.isStreaming,
+          errorMessage: e instanceof Error ? e.message : String(e),
+          currentToolCalls: selectCurrentToolCalls(getState()).map(
+            summarizeToolCallStateForDebug,
+          ),
+        })}`,
+      );
       const toolCallsToCancel = selectCurrentToolCalls(getState());
       posthog.capture("stream_premature_close_error", {
         duration: (Date.now() - start) / 1000,
@@ -423,12 +514,28 @@ export const streamNormalInput = createAsyncThunk<
     // 1. Mark generating tool calls as generated
     const state1 = getState();
     if (streamAborter.signal.aborted || !state1.session.isStreaming) {
+      console.log(
+        `[StreamNormalInput] skipping setToolGenerated ${JSON.stringify({
+          aborted: streamAborter.signal.aborted,
+          isStreaming: state1.session.isStreaming,
+          currentToolCalls: selectCurrentToolCalls(state1).map(
+            summarizeToolCallStateForDebug,
+          ),
+        })}`,
+      );
       return;
     }
     const originalToolCalls = selectCurrentToolCalls(state1);
     const generatingCalls = originalToolCalls.filter(
       (tc) => tc.status === "generating",
     );
+    if (generatingCalls.length > 0) {
+      console.log(
+        `[StreamNormalInput] promoting generating tool calls ${JSON.stringify({
+          generatingCalls: generatingCalls.map(summarizeToolCallStateForDebug),
+        })}`,
+      );
+    }
     for (const { toolCallId } of generatingCalls) {
       dispatch(
         setToolGenerated({

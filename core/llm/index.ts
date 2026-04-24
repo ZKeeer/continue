@@ -40,6 +40,7 @@ import { isOllamaInstalled } from "../util/ollamaHelper.js";
 import { TokensBatchingService } from "../util/TokensBatchingService.js";
 import { withExponentialBackoff } from "../util/withExponentialBackoff.js";
 
+import { applyToolOverrides } from "../tools/applyToolOverrides.js";
 import {
   autodetectPromptTemplates,
   autodetectTemplateFunction,
@@ -67,7 +68,6 @@ import {
   toCompleteBody,
   toFimBody,
 } from "./openaiTypeConverters.js";
-import { applyToolOverrides } from "../tools/applyToolOverrides.js";
 
 export class LLMError extends Error {
   constructor(
@@ -94,7 +94,9 @@ function truncateForDebug(value: string, maxLength = 160): string {
     : value;
 }
 
-function summarizeMessageContentForDebug(content: unknown): Record<string, unknown> {
+function summarizeMessageContentForDebug(
+  content: unknown,
+): Record<string, unknown> {
   if (typeof content === "string") {
     return {
       contentType: "string",
@@ -231,11 +233,15 @@ function summarizeChatCompletionBodyForDebug(
     toolCount: Array.isArray(body.tools) ? body.tools.length : 0,
     parallelToolCalls: (body as any).parallel_tool_calls,
     hasPrediction: Object.prototype.hasOwnProperty.call(body, "prediction"),
-    hasStreamOptions: Object.prototype.hasOwnProperty.call(body, "stream_options"),
+    hasStreamOptions: Object.prototype.hasOwnProperty.call(
+      body,
+      "stream_options",
+    ),
     messageCount: messageSummaries.length,
     totalMessageTextLength: messageSummaries.reduce(
       (total, message) =>
-        total + (typeof message.textLength === "number" ? message.textLength : 0),
+        total +
+        (typeof message.textLength === "number" ? message.textLength : 0),
       0,
     ),
     messageSummaries,
@@ -1238,11 +1244,51 @@ export abstract class BaseLLM implements ILLM {
       { ...body, stream: true },
       signal,
     );
+    let chunkIndex = 0;
     for await (const chunk of stream) {
+      chunkIndex++;
+      const choice = (chunk as any).choices?.[0];
+      const toolCalls = Array.isArray(choice?.delta?.tool_calls)
+        ? choice.delta.tool_calls
+        : [];
+      const finishReason = choice?.finish_reason;
+      if (toolCalls.length > 0 || finishReason || (chunk as any).usage) {
+        console.log(
+          `[OpenAIAdapterStream] ${JSON.stringify({
+            chunkIndex,
+            chunkId: (chunk as any).id,
+            finishReason,
+            hasUsage: !!(chunk as any).usage,
+            toolCalls: toolCalls.map((toolCall: any) => ({
+              id: toolCall.id,
+              index: toolCall.index,
+              type: toolCall.type,
+              name: toolCall.function?.name,
+              argsLength:
+                typeof toolCall.function?.arguments === "string"
+                  ? toolCall.function.arguments.length
+                  : undefined,
+              argsPreview:
+                typeof toolCall.function?.arguments === "string"
+                  ? toolCall.function.arguments.slice(0, 160)
+                  : undefined,
+            })),
+          })}`,
+        );
+      }
       if (!this.lastRequestId && typeof (chunk as any).id === "string") {
         this.lastRequestId = (chunk as any).id;
       }
       const chatChunk = fromChatCompletionChunk(chunk as any);
+      if ((toolCalls.length > 0 || finishReason) && !chatChunk) {
+        console.log(
+          `[OpenAIAdapterStream] chunk converted to undefined ${JSON.stringify({
+            chunkIndex,
+            chunkId: (chunk as any).id,
+            finishReason,
+          })}`,
+        );
+      }
       if (chatChunk) {
         yield chatChunk;
       }

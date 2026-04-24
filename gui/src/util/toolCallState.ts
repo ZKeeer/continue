@@ -15,6 +15,17 @@ function previewText(value: string, maxLength = 160): string {
     : value;
 }
 
+function safeStringifyForLog(value: unknown): string {
+  try {
+    return JSON.stringify(value);
+  } catch (error) {
+    return JSON.stringify({
+      serializationError:
+        error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
 // Merge streamed tool calls
 // See example of data coming in here:
 // https://platform.openai.com/docs/guides/function-calling?api-mode=chat#streaming
@@ -30,6 +41,29 @@ export function addToolCallDeltaToState(
     toolCallDelta.id &&
     currentCall?.id !== toolCallDelta.id
   ) {
+    if (
+      isEditTool(
+        currentCall?.function.name ?? toolCallDelta.function?.name ?? "",
+      )
+    ) {
+      console.log(
+        `[ToolCallState] edit tool delta ignored ${safeStringifyForLog({
+          reason: "id_mismatch",
+          existingToolCallId: currentCall?.id,
+          incomingToolCallId: toolCallDelta.id,
+          existingToolName: currentCall?.function.name ?? "",
+          incomingToolName: toolCallDelta.function?.name ?? "",
+          incomingArgsLength:
+            typeof toolCallDelta.function?.arguments === "string"
+              ? toolCallDelta.function.arguments.length
+              : undefined,
+          incomingArgsPreview:
+            typeof toolCallDelta.function?.arguments === "string"
+              ? previewText(toolCallDelta.function.arguments)
+              : undefined,
+        })}`,
+      );
+    }
     return currentState;
   }
 
@@ -72,7 +106,7 @@ export function addToolCallDeltaToState(
   const [isValidJson, parsedArgs] = incrementalParseJson(mergedArgs || "{}");
 
   if (shouldLogEditTool) {
-    console.log("[ToolCallState] edit tool delta merge", {
+    const debugPayload = {
       toolName: effectiveToolName,
       toolCallId: callId,
       providerIndex: currentState?.providerIndex ?? toolCallDelta.index,
@@ -95,7 +129,10 @@ export function addToolCallDeltaToState(
       argsDeltaPreview:
         typeof argsDelta === "string" ? previewText(argsDelta) : undefined,
       mergedArgsPreview: previewText(mergedArgs),
-    });
+    };
+    console.log(
+      `[ToolCallState] edit tool delta merge ${safeStringifyForLog(debugPayload)}`,
+    );
   }
 
   const providerIndex = currentState?.providerIndex ?? toolCallDelta.index;

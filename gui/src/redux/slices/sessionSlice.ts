@@ -57,6 +57,22 @@ function filterMultipleEditToolCalls(
   return toolCalls.filter((toolCall) => {
     if (toolCall.function?.name && isEditTool(toolCall.function?.name)) {
       if (hasSeenEditTool) {
+        console.log(
+          `[ToolCallFlow] filtered duplicate edit tool delta ${JSON.stringify({
+            reason: "duplicate_edit_tool_call",
+            toolCallId: toolCall.id,
+            providerIndex: toolCall.index,
+            toolName: toolCall.function.name,
+            argsLength:
+              typeof toolCall.function.arguments === "string"
+                ? toolCall.function.arguments.length
+                : undefined,
+            argsPreview:
+              typeof toolCall.function.arguments === "string"
+                ? toolCall.function.arguments.slice(0, 160)
+                : undefined,
+          })}`,
+        );
         return false; // Skip this duplicate edit tool
       }
       hasSeenEditTool = true;
@@ -140,6 +156,30 @@ function applyToolCallDelta(
     // filtered duplicate call), skip this delta entirely to avoid creating a
     // ghost state.
     if (existingStateIndex === -1 && toolCallStates.length > 0) {
+      if (isEditTool(toolCallDelta.function?.name ?? "")) {
+        console.log(
+          `[ToolCallFlow] skipped edit tool delta ${JSON.stringify({
+            reason: "provider_index_not_found_after_filter",
+            incomingToolCallId: toolCallDelta.id,
+            providerIndex: toolCallDelta.index,
+            toolName: toolCallDelta.function?.name ?? "",
+            argsLength:
+              typeof toolCallDelta.function?.arguments === "string"
+                ? toolCallDelta.function.arguments.length
+                : undefined,
+            argsPreview:
+              typeof toolCallDelta.function?.arguments === "string"
+                ? toolCallDelta.function.arguments.slice(0, 160)
+                : undefined,
+            existingStates: toolCallStates.map((state) => ({
+              toolCallId: state.toolCallId,
+              providerIndex: state.providerIndex,
+              toolName: state.toolCall.function.name,
+              status: state.status,
+            })),
+          })}`,
+        );
+      }
       return;
     }
   } else {
@@ -191,6 +231,34 @@ export function handleStreamingToolCallUpdates(
 
     // Filter out duplicate edit/search-replace tool calls - only keep the first one
     const filteredToolCalls = filterMultipleEditToolCalls(message.toolCalls);
+
+    if (
+      filteredToolCalls.some((toolCall) =>
+        isEditTool(toolCall.function?.name ?? ""),
+      )
+    ) {
+      console.log(
+        `[ToolCallFlow] applying streamed edit tool deltas ${JSON.stringify({
+          incomingCount: message.toolCalls.length,
+          filteredCount: filteredToolCalls.length,
+          deltas: filteredToolCalls
+            .filter((toolCall) => isEditTool(toolCall.function?.name ?? ""))
+            .map((toolCall) => ({
+              toolCallId: toolCall.id,
+              providerIndex: toolCall.index,
+              toolName: toolCall.function?.name ?? "",
+              argsLength:
+                typeof toolCall.function?.arguments === "string"
+                  ? toolCall.function.arguments.length
+                  : undefined,
+              argsPreview:
+                typeof toolCall.function?.arguments === "string"
+                  ? toolCall.function.arguments.slice(0, 160)
+                  : undefined,
+            })),
+        })}`,
+      );
+    }
 
     // Process each filtered tool call delta, matching by ID to update the correct state
     filteredToolCalls.forEach((toolCallDelta) => {
@@ -877,6 +945,24 @@ export const sessionSlice = createSlice({
       );
 
       if (toolCallState) {
+        const args = toolCallState.toolCall.function.arguments ?? "";
+        let parseOk = false;
+        try {
+          JSON.parse(args);
+          parseOk = true;
+        } catch {
+          parseOk = false;
+        }
+        console.log(
+          `[ToolCallFlow] setToolGenerated ${JSON.stringify({
+            toolCallId: action.payload.toolCallId,
+            toolName: toolCallState.toolCall.function.name,
+            previousStatus: toolCallState.status,
+            argsLength: args.length,
+            parseOk,
+            argsPreview: args.slice(0, 160),
+          })}`,
+        );
         toolCallState.status = "generated";
 
         const tool = action.payload.tools.find(
