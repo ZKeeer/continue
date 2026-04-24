@@ -1,23 +1,25 @@
 import * as vscode from "vscode";
 
-const removedLineDecorationType = (line: string) =>
-  vscode.window.createTextEditorDecorationType({
-    isWholeLine: true,
-    backgroundColor: { id: "diffEditor.removedLineBackground" },
-    outlineWidth: "1px",
-    outlineStyle: "solid",
-    outlineColor: { id: "diffEditor.removedTextBorder" },
-    rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed,
-    after: {
-      contentText: line,
-      color: "#808080",
-      textDecoration: "none; white-space: pre",
-    },
-    // NOTE this has the effect of hiding text the user enters into a red line, which may cause linting errors
-    // But probably worth saving the ugly effect of having the ghost text after entered text
-    // And resolved upon accept/reject when line deleted anyways
-    textDecoration: "none; display: none",
-  });
+// Shared singleton decoration type for removed lines.
+// Per-line ghost text (`after.contentText`) is supplied via
+// `DecorationOptions.renderOptions` at setDecorations() time instead of
+// baked into the decoration type. This avoids creating one
+// TextEditorDecorationType per removed line — a previous design that
+// registered thousands of listeners on VSCode's shared emitters during a
+// large-file diff (e.g. a 2k-line full rewrite), causing the extension
+// host to hit the listener leak threshold and crash.
+const removedLineDecorationType = vscode.window.createTextEditorDecorationType({
+  isWholeLine: true,
+  backgroundColor: { id: "diffEditor.removedLineBackground" },
+  outlineWidth: "1px",
+  outlineStyle: "solid",
+  outlineColor: { id: "diffEditor.removedTextBorder" },
+  rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed,
+  // NOTE this has the effect of hiding text the user enters into a red line, which may cause linting errors
+  // But probably worth saving the ugly effect of having the ghost text after entered text
+  // And resolved upon accept/reject when line deleted anyways
+  textDecoration: "none; display: none",
+});
 
 const addedLineDecorationType = vscode.window.createTextEditorDecorationType({
   isWholeLine: true,
@@ -110,16 +112,15 @@ export class AddedLineDecorationManager {
   }
 }
 
-// Class for managing ghost-text decorations for removed lines (e.g. RED)
-// Behavior is slightly different all around
-// because each line will have a unique decoration type
+// Class for managing ghost-text decorations for removed lines (e.g. RED).
+// All ranges share ONE decoration type; per-line ghost text is applied via
+// DecorationOptions.renderOptions.after.contentText.
 export class RemovedLineDecorationManager {
   constructor(private editor: vscode.TextEditor) {}
 
   ranges: {
     line: string;
     range: vscode.Range;
-    decoration: vscode.TextEditorDecorationType;
   }[] = [];
 
   applyToNewEditor(newEditor: vscode.TextEditor) {
@@ -138,7 +139,6 @@ export class RemovedLineDecorationManager {
           startIndex + i,
           Number.MAX_SAFE_INTEGER,
         ),
-        decoration: removedLineDecorationType(line),
       });
       i++;
     }
@@ -150,17 +150,23 @@ export class RemovedLineDecorationManager {
   }
 
   applyDecorations() {
-    this.ranges.forEach((r) => {
-      this.editor.setDecorations(r.decoration, [r.range]);
-    });
+    const options: vscode.DecorationOptions[] = this.ranges.map((r) => ({
+      range: r.range,
+      renderOptions: {
+        after: {
+          contentText: r.line,
+          color: "#808080",
+          textDecoration: "none; white-space: pre",
+        },
+      },
+    }));
+    this.editor.setDecorations(removedLineDecorationType, options);
   }
 
-  // Removed decorations are always unique, so we'll always dispose
+  // Single shared decoration type — just drop ranges and re-apply an empty set.
   clear() {
-    this.ranges.forEach((r) => {
-      r.decoration.dispose();
-    });
     this.ranges = [];
+    this.editor.setDecorations(removedLineDecorationType, []);
   }
 
   shiftDownAfterLine(afterLine: number, offset: number) {
@@ -181,10 +187,11 @@ export class RemovedLineDecorationManager {
           i + sequential < this.ranges.length &&
           this.ranges[i + sequential].range.start.line === line + sequential
         ) {
-          this.ranges[i + sequential].decoration.dispose();
           sequential++;
         }
-        return this.ranges.splice(i, sequential);
+        const removed = this.ranges.splice(i, sequential);
+        this.applyDecorations();
+        return removed;
       }
     }
   }
