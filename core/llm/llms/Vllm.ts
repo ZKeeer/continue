@@ -23,12 +23,15 @@ interface VllmRerankResponse {
 class Vllm extends OpenAI {
   static providerName = "vllm";
   private _userExplicitContextLength: boolean;
+  private _userExplicitMaxTokens: boolean;
   private _userExplicitModel: boolean;
 
   constructor(options: LLMOptions) {
     super(options);
 
     this._userExplicitContextLength = options.contextLength !== undefined;
+    this._userExplicitMaxTokens =
+      options.completionOptions?.maxTokens !== undefined;
     this._userExplicitModel =
       options.model !== undefined && options.model !== "";
 
@@ -82,7 +85,14 @@ class Vllm extends OpenAI {
           this.model = data.id;
         }
         if (!this._userExplicitContextLength) {
-          this._contextLength = Number.parseInt(data.max_model_len);
+          const detectedContextLength = Number.parseInt(data.max_model_len);
+          if (!Number.isNaN(detectedContextLength)) {
+            this._contextLength = detectedContextLength;
+            if (!this._userExplicitMaxTokens) {
+              this.completionOptions.maxTokens =
+                this.getDynamicDefaultMaxTokens(detectedContextLength);
+            }
+          }
         }
       })
       .catch((e) => {

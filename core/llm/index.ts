@@ -422,19 +422,18 @@ export abstract class BaseLLM implements ILLM {
     this.baseChatSystemMessage = options.baseChatSystemMessage;
     this._contextLength = options.contextLength ?? llmInfo?.contextLength;
     this.maxStopWords = options.maxStopWords ?? this.maxStopWords;
+    const defaultMaxTokens =
+      this._contextLength === undefined
+        ? DEFAULT_MAX_TOKENS
+        : Math.floor(this._contextLength / 3);
     this.completionOptions = {
       ...options.completionOptions,
       model: options.model || "gpt-4",
       maxTokens:
         options.completionOptions?.maxTokens ??
         (llmInfo?.maxCompletionTokens
-          ? Math.min(
-              llmInfo.maxCompletionTokens,
-              // Even if the model has a large maxTokens, we don't want to use that every time,
-              // because it takes away from the context length
-              this.contextLength / 4,
-            )
-          : DEFAULT_MAX_TOKENS),
+          ? Math.min(llmInfo.maxCompletionTokens, defaultMaxTokens)
+          : defaultMaxTokens),
     };
     this.requestOptions = options.requestOptions;
     this.promptTemplates = {
@@ -499,6 +498,12 @@ export abstract class BaseLLM implements ILLM {
 
   get contextLength() {
     return this._contextLength ?? DEFAULT_CONTEXT_LENGTH;
+  }
+
+  protected getDynamicDefaultMaxTokens(contextLength = this._contextLength) {
+    return contextLength === undefined
+      ? DEFAULT_MAX_TOKENS
+      : Math.floor(contextLength / 4);
   }
 
   getConfigurationStatus() {
