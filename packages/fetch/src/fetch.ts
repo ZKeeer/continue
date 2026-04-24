@@ -158,6 +158,23 @@ export async function fetchwithRequestOptions(
   const finalBody = updatedBody ?? init?.body;
   const method = init?.method || "GET";
 
+  // Lightweight always-on diagnostic for chat/completions POSTs so we can
+  // confirm the on-the-wire body size matches what the caller serialized
+  // (any mismatch == a string-level truncation between SDK and fetch).
+  if (
+    method === "POST" &&
+    typeof url.pathname === "string" &&
+    url.pathname.endsWith("/chat/completions") &&
+    typeof finalBody === "string"
+  ) {
+    const bodyStr = finalBody as string;
+    const tail =
+      bodyStr.length > 120 ? bodyStr.slice(bodyStr.length - 120) : bodyStr;
+    console.log(
+      `[fetchwithRequestOptions][preWire] ${String(url)} bodyLength=${bodyStr.length} tail=${JSON.stringify(tail)}`,
+    );
+  }
+
   // Verbose logging for debugging - log request details
   if (process.env.VERBOSE_FETCH) {
     logRequest(method, url, headers, finalBody, proxy, shouldBypass);

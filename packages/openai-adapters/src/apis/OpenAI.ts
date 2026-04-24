@@ -38,7 +38,9 @@ function truncateForDebug(value: string, maxLength = 160): string {
     : value;
 }
 
-function summarizeMessageContentForDebug(content: unknown): Record<string, unknown> {
+function summarizeMessageContentForDebug(
+  content: unknown,
+): Record<string, unknown> {
   if (typeof content === "string") {
     return {
       contentType: "string",
@@ -82,7 +84,9 @@ type DebugMessageSummary = {
   reasoningDetailsCount: number;
 };
 
-function summarizeChatBodyForDebug(body: ChatCompletionCreateParams): Record<string, unknown> {
+function summarizeChatBodyForDebug(
+  body: ChatCompletionCreateParams,
+): Record<string, unknown> {
   const messages = Array.isArray(body.messages) ? body.messages : [];
   const messageSummaries: DebugMessageSummary[] = messages.map(
     (message: any, index) => {
@@ -161,11 +165,15 @@ function summarizeChatBodyForDebug(body: ChatCompletionCreateParams): Record<str
     toolCount: Array.isArray(body.tools) ? body.tools.length : 0,
     parallelToolCalls: (body as any).parallel_tool_calls,
     hasPrediction: Object.prototype.hasOwnProperty.call(body, "prediction"),
-    hasStreamOptions: Object.prototype.hasOwnProperty.call(body, "stream_options"),
+    hasStreamOptions: Object.prototype.hasOwnProperty.call(
+      body,
+      "stream_options",
+    ),
     messageCount: messageSummaries.length,
     totalMessageTextLength: messageSummaries.reduce(
       (total, message) =>
-        total + (typeof message.textLength === "number" ? message.textLength : 0),
+        total +
+        (typeof message.textLength === "number" ? message.textLength : 0),
       0,
     ),
     messageSummaries,
@@ -196,8 +204,91 @@ function summarizeOpenAIErrorForDebug(error: unknown): Record<string, unknown> {
   };
 }
 
-function cloneChatBodyForDebug<T extends ChatCompletionCreateParams>(body: T): T {
+function cloneChatBodyForDebug<T extends ChatCompletionCreateParams>(
+  body: T,
+): T {
   return JSON.parse(JSON.stringify(body));
+}
+
+/**
+ * Audit every assistant message's tool_calls[].function.arguments.
+ * Per the OpenAI spec this field is a STRING that the server will
+ * json.loads() again. A malformed/truncated string here is the classic
+ * trigger of `unexpected end of data` 400 errors from strict servers
+ * like sglang / vLLM. We log per-call: length, JSON-parse validity,
+ * head/tail preview so a truncation (e.g. arguments ending mid-string)
+ * is visible at a glance.
+ */
+function auditToolCallArguments(
+  label: string,
+  body: ChatCompletionCreateParams,
+): void {
+  const messages = Array.isArray(body.messages) ? body.messages : [];
+  const findings: Array<Record<string, unknown>> = [];
+  messages.forEach((message: any, msgIndex) => {
+    if (!Array.isArray(message?.tool_calls)) return;
+    message.tool_calls.forEach((tc: any, tcIndex: number) => {
+      const args = tc?.function?.arguments;
+      const argsType = typeof args;
+      const isString = argsType === "string";
+      const length = isString ? args.length : -1;
+      let parseOk = false;
+      let parseError: string | undefined;
+      if (isString) {
+        try {
+          JSON.parse(args);
+          parseOk = true;
+        } catch (e: any) {
+          parseError = e?.message;
+        }
+      }
+      const head = isString ? args.slice(0, 80) : undefined;
+      const tail = isString && length > 80 ? args.slice(-80) : undefined;
+      findings.push({
+        msgIndex,
+        role: message?.role,
+        tcIndex,
+        id: tc?.id,
+        name: tc?.function?.name,
+        argsType,
+        length,
+        parseOk,
+        parseError,
+        head,
+        tail,
+      });
+    });
+  });
+  const invalid = findings.filter((f) => f.argsType === "string" && !f.parseOk);
+  console.log(
+    `[OpenAIApi][toolCallAudit] ${label} totalToolCalls=${findings.length} invalidJsonArgs=${invalid.length}`,
+    JSON.stringify(findings, null, 2),
+  );
+}
+
+/**
+ * Compute serialized body size so the reader can cross-check against
+ * what is actually written to the socket in fetchwithRequestOptions.
+ * If the two numbers disagree we have a string-level truncation in
+ * between (that is exactly the "4096-style" concern).
+ */
+function measureSerializedBodyForDebug(body: ChatCompletionCreateParams): {
+  bodyLength: number;
+  tail: string;
+} {
+  let serialized = "";
+  try {
+    serialized = JSON.stringify(body);
+  } catch {
+    return { bodyLength: -1, tail: "" };
+  }
+  return {
+    bodyLength: serialized.length,
+    tail:
+      serialized.length > 120
+        ? serialized.slice(serialized.length - 120)
+        : serialized,
+  };
 }
 
 export class OpenAIApi implements BaseLlmApi {
@@ -326,12 +417,20 @@ export class OpenAIApi implements BaseLlmApi {
     }
     const originalBody = cloneChatBodyForDebug(body);
     const finalBody = this.modifyChatBody(body);
+    auditToolCallArguments("preSend.nonStream", finalBody);
+    {
+      const m = measureSerializedBodyForDebug(finalBody);
+      console.log(
+        `[OpenAIApi][preSend] nonStream serializedBodyLength=${m.bodyLength} tail=${JSON.stringify(m.tail)}`,
+      );
+    }
     try {
       const response = await this.openai.chat.completions.create(finalBody, {
         signal,
       });
       return response;
     } catch (error) {
+      auditToolCallArguments("onError.nonStream", finalBody);
       this.logChatCompletionFailure(
         "chatCompletionNonStream",
         error,
@@ -354,6 +453,13 @@ export class OpenAIApi implements BaseLlmApi {
     }
     const originalBody = cloneChatBodyForDebug(body);
     const finalBody = this.modifyChatBody(body);
+    auditToolCallArguments("preSend.stream", finalBody);
+    {
+      const m = measureSerializedBodyForDebug(finalBody);
+      console.log(
+        `[OpenAIApi][preSend] stream serializedBodyLength=${m.bodyLength} tail=${JSON.stringify(m.tail)}`,
+      );
+    }
     try {
       const response = await this.openai.chat.completions.create(finalBody, {
         signal,
@@ -373,6 +479,7 @@ export class OpenAIApi implements BaseLlmApi {
         yield lastChunkWithUsage;
       }
     } catch (error) {
+      auditToolCallArguments("onError.stream", finalBody);
       this.logChatCompletionFailure(
         "chatCompletionStream",
         error,
