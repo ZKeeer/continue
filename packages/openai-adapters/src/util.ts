@@ -202,12 +202,36 @@ export function customFetch(
     return init;
   }
 
-  return (req: URL | string | Request, init?: any) => {
+  async function doFetch(req: URL | string | Request, init?: any) {
     init = letRequestOptionsOverrideAuthHeaders(init);
-    if (typeof req === "string" || req instanceof URL) {
-      return fetchwithRequestOptions(req, init, requestOptions);
-    } else {
-      return fetchwithRequestOptions(req.url, init, requestOptions);
+    const url = typeof req === "string" || req instanceof URL ? req : req.url;
+    const response = await fetchwithRequestOptions(url, init, requestOptions);
+
+    // On non-2xx, clone and read the body for diagnostics. The upstream SDK
+    // (e.g. openai-node) sometimes reports "(no body)" for streaming 4xx
+    // because the body stream is consumed/aborted before the error is raised.
+    // Cloning preserves the original Response for the SDK.
+    if (!response.ok) {
+      try {
+        const bodyText = await response.clone().text();
+        if (bodyText) {
+          const preview =
+            bodyText.length > 2000
+              ? `${bodyText.slice(0, 2000)}...<truncated ${bodyText.length - 2000} chars>`
+              : bodyText;
+          console.error(
+            `[customFetch] HTTP ${response.status} ${response.statusText} ${String(
+              url,
+            )} body:`,
+            preview,
+          );
+        }
+      } catch {
+        // ignore body-read errors; preserve original response
+      }
     }
-  };
+    return response;
+  }
+
+  return doFetch as typeof patchedFetch;
 }
