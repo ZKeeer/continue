@@ -1,7 +1,5 @@
 import ignore from "ignore";
 
-import path from "path";
-import { fileURLToPath } from "url";
 import { ContinueError, ContinueErrorReason } from "../util/errors";
 
 // Security-focused ignore patterns - these should always be excluded for security reasons
@@ -235,19 +233,44 @@ export const defaultIgnoreFileAndDir = ignore()
   .add(defaultIgnoreFile)
   .add(defaultIgnoreDir);
 
+function tryFileUrlToPath(filePathOrUri: string): string {
+  try {
+    const url = new URL(filePathOrUri);
+    if (url.protocol === "file:") {
+      return decodeURIComponent(url.pathname);
+    }
+  } catch {
+    // Not a URL; handle as a normal path below.
+  }
+  return filePathOrUri;
+}
+
+function isAbsolutePath(filepath: string): boolean {
+  return filepath.startsWith("/") || /^[a-zA-Z]:\//.test(filepath);
+}
+
+function normalizePathForSecurityIgnore(filePathOrUri: string): string {
+  let filepath = tryFileUrlToPath(filePathOrUri).replace(/\\/g, "/");
+
+  if (isAbsolutePath(filepath)) {
+    const hasTrailingSlash = filepath.endsWith("/");
+    const parts = filepath.split("/").filter(Boolean);
+    if (parts.length === 0) {
+      return "";
+    }
+    const basename = parts.at(-1) ?? "";
+    const dir = parts.at(-2) ?? "";
+    filepath = `${dir ? dir + "/" : ""}${basename}${hasTrailingSlash ? "/" : ""}`;
+  }
+
+  return filepath;
+}
+
 export function isSecurityConcern(filePathOrUri: string) {
   if (!filePathOrUri) {
     return false;
   }
-  let filepath = filePathOrUri;
-  try {
-    filepath = fileURLToPath(filePathOrUri);
-  } catch {}
-  if (path.isAbsolute(filepath)) {
-    const dir = path.dirname(filepath).split(/\/|\\/).at(-1) ?? "";
-    const basename = path.basename(filepath);
-    filepath = `${dir ? dir + "/" : ""}${basename}`;
-  }
+  const filepath = normalizePathForSecurityIgnore(filePathOrUri);
   if (!filepath) {
     return false;
   }
