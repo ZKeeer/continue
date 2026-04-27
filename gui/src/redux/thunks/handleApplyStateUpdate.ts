@@ -2,6 +2,7 @@ import { createAsyncThunk } from "@reduxjs/toolkit";
 import { ApplyState, ApplyToFilePayload } from "core";
 import { EDIT_MODE_STREAM_ID } from "core/edit/constants";
 import { logAgentModeEditOutcome } from "../../util/editOutcomeLogger";
+import { isEditTool } from "../../util/toolCallState";
 import {
   selectApplyStateByToolCallId,
   selectToolCallById,
@@ -52,6 +53,7 @@ export const handleApplyStateUpdate = createAsyncThunk<
         if (
           applyState.status === "done" &&
           toolCallState?.toolCall.function.name &&
+          !isEditTool(toolCallState.toolCall.function.name) &&
           getState().ui.toolSettings[toolCallState.toolCall.function.name] ===
             "allowedWithoutPermission"
         ) {

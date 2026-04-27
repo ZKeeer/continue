@@ -90,17 +90,12 @@ export class ApplyManager {
     streamId: string,
     toolCallId?: string,
   ) {
-    await editor.edit((builder) =>
-      builder.insert(new vscode.Position(0, 0), text),
-    );
-
-    await this.webviewProtocol.request("updateApplyState", {
+    await this.verticalDiffManager.instantApplyDiff(
+      editor.document.getText(),
+      text,
       streamId,
-      status: "closed",
-      numDiffs: 0,
-      fileContent: text,
       toolCallId,
-    });
+    );
   }
 
   private async handleExistingDocument(

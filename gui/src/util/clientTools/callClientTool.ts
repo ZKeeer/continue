@@ -3,6 +3,7 @@ import { BuiltInToolNames } from "core/tools/builtIn";
 import { ContinueError, ContinueErrorReason } from "core/util/errors";
 import { IIdeMessenger } from "../../context/IdeMessenger";
 import { AppThunkDispatch, RootState } from "../../redux/store";
+import { createNewFileImpl } from "./createNewFileImpl";
 import { editToolImpl } from "./editImpl";
 import { multiEditImpl } from "./multiEditImpl";
 import { singleFindAndReplaceImpl } from "./singleFindAndReplaceImpl";
@@ -71,6 +72,9 @@ export async function callClientTool(
               : "missing",
         });
         output = await editToolImpl(parsedArgs, toolCall.id, extras);
+        break;
+      case BuiltInToolNames.CreateNewFile:
+        output = await createNewFileImpl(parsedArgs, toolCall.id, extras);
         break;
       case BuiltInToolNames.SingleFindAndReplace:
         output = await singleFindAndReplaceImpl(

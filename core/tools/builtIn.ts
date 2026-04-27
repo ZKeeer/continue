@@ -33,6 +33,7 @@ export const BUILT_IN_GROUP_NAME = "Built-In";
 
 export const CLIENT_TOOLS_IMPLS = [
   BuiltInToolNames.EditExistingFile,
+  BuiltInToolNames.CreateNewFile,
   BuiltInToolNames.SingleFindAndReplace,
   BuiltInToolNames.MultiEdit,
 ];
