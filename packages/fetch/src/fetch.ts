@@ -9,6 +9,96 @@ import { getProxy, shouldBypassProxy } from "./util.js";
 
 const { http, https } = (followRedirects as any).default;
 
+const SECRET_KEY_PATTERN =
+  /(authorization|api[-_]?key|x-api-key|access[-_]?token|refresh[-_]?token|secret|password|credential|secretAccessKey|accessKeyId)/i;
+
+function shouldRedactKey(key: string): boolean {
+  if (/reasoning|thinking/i.test(key)) {
+    return false;
+  }
+  return SECRET_KEY_PATTERN.test(key);
+}
+
+function redactRecord(record: { [key: string]: string }): {
+  [key: string]: string;
+} {
+  return Object.fromEntries(
+    Object.entries(record).map(([key, value]) => [
+      key,
+      shouldRedactKey(key) ? "[REDACTED]" : value,
+    ]),
+  );
+}
+
+function isLlmDebugLoggingEnabled(): boolean {
+  const value = process.env.CONTINUE_LLM_DEBUG_LOG?.toLowerCase();
+  return value !== "0" && value !== "false" && value !== "off";
+}
+
+function safeJsonParseBody(body: BodyInit | null | undefined): unknown {
+  if (typeof body !== "string") {
+    return body;
+  }
+  try {
+    return JSON.parse(body);
+  } catch {
+    return body;
+  }
+}
+
+function stringifyLlmDebug(value: unknown): string {
+  return JSON.stringify(
+    value,
+    (key, nestedValue) => {
+      if (nestedValue === undefined) {
+        return "[undefined]";
+      }
+      if (shouldRedactKey(key)) {
+        return "[REDACTED]";
+      }
+      return nestedValue;
+    },
+    2,
+  );
+}
+
+function isLlmEndpoint(pathname: string): boolean {
+  return (
+    pathname.endsWith("/chat/completions") ||
+    pathname.endsWith("/completions") ||
+    pathname.endsWith("/responses") ||
+    pathname.endsWith("/messages") ||
+    pathname.endsWith("/api/chat") ||
+    pathname.endsWith("/api/generate")
+  );
+}
+
+function logLlmWireRequest(
+  method: string,
+  url: URL,
+  headers: { [key: string]: string },
+  body: BodyInit | null | undefined,
+  proxy?: string,
+  shouldBypass?: boolean,
+) {
+  if (!isLlmDebugLoggingEnabled() || !isLlmEndpoint(url.pathname)) {
+    return;
+  }
+
+  console.log(
+    `[LLM_DEBUG] fetchwithRequestOptions final on-wire request params\n${stringifyLlmDebug(
+      {
+        method,
+        url: url.toString(),
+        headers: redactRecord(headers),
+        proxy: proxy && !shouldBypass ? proxy : undefined,
+        body: safeJsonParseBody(body),
+        rawBodyLength: typeof body === "string" ? body.length : undefined,
+      },
+    )}`,
+  );
+}
+
 function logRequest(
   method: string,
   url: URL,
@@ -23,7 +113,7 @@ function logRequest(
 
   // Log headers in curl format
   console.log("Headers:");
-  for (const [key, value] of Object.entries(headers)) {
+  for (const [key, value] of Object.entries(redactRecord(headers))) {
     console.log(`  -H '${key}: ${value}'`);
   }
 
@@ -39,7 +129,7 @@ function logRequest(
 
   // Generate equivalent curl command
   let curlCommand = `curl -X ${method}`;
-  for (const [key, value] of Object.entries(headers)) {
+  for (const [key, value] of Object.entries(redactRecord(headers))) {
     curlCommand += ` -H '${key}: ${value}'`;
   }
   if (body) {
@@ -157,6 +247,8 @@ export async function fetchwithRequestOptions(
 
   const finalBody = updatedBody ?? init?.body;
   const method = init?.method || "GET";
+
+  logLlmWireRequest(method, url, headers, finalBody, proxy, shouldBypass);
 
   // Lightweight always-on diagnostic for chat/completions POSTs so we can
   // confirm the on-the-wire body size matches what the caller serialized

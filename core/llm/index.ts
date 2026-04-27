@@ -60,6 +60,7 @@ import {
   countTokens,
   pruneRawPromptFromTop,
 } from "./countTokens.js";
+import { logLlmDebug } from "./debugLogging.js";
 import {
   fromChatCompletionChunk,
   fromChatResponse,
@@ -657,6 +658,13 @@ export abstract class BaseLLM implements ILLM {
     // Custom Node.js fetch
     const customFetch = async (input: URL | RequestInfo, init: any) => {
       try {
+        logLlmDebug("BaseLLM fetch request params", {
+          provider: this.providerName,
+          model: this.model,
+          url: String(input),
+          init,
+          requestOptions: this.requestOptions,
+        });
         const resp = await fetchwithRequestOptions(
           new URL(input as any),
           { ...init },
@@ -1401,6 +1409,23 @@ export abstract class BaseLLM implements ILLM {
       ? this.templateMessages(messagesCopy)
       : this._formatChatMessages(messagesCopy);
 
+    logLlmDebug("BaseLLM streamChat effective request params", {
+      provider: this.providerName,
+      underlyingProvider: this.underlyingProviderName,
+      title: this.title,
+      model: completionOptions.model,
+      messageOptions,
+      supportsReasoning: {
+        includeReasoningField: this.supportsReasoningField,
+        includeReasoningDetailsField: this.supportsReasoningDetailsField,
+        includeReasoningContentField: this.supportsReasoningContentField,
+      },
+      rawOptions: options,
+      optionsWithOverrides,
+      completionOptions,
+      messages,
+    });
+
     if (logEnabled) {
       interaction?.logItem({
         kind: "startChat",
@@ -1445,6 +1470,13 @@ export abstract class BaseLLM implements ILLM {
             includeReasoningContentField: this.supportsReasoningContentField,
           });
           body = this.modifyChatBody(body);
+          logLlmDebug("BaseLLM OpenAI-adapter chat body params", {
+            provider: this.providerName,
+            underlyingProvider: this.underlyingProviderName,
+            model: completionOptions.model,
+            completionOptions,
+            body,
+          });
           requestBodySummary = summarizeChatCompletionBodyForDebug(body);
 
           if (logEnabled) {
