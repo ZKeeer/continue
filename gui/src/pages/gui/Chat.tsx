@@ -27,10 +27,7 @@ import { TabBar } from "../../components/TabBar/TabBar";
 import { IdeMessengerContext } from "../../context/IdeMessenger";
 import { useWebviewListener } from "../../hooks/useWebviewListener";
 import { useAppDispatch, useAppSelector } from "../../redux/hooks";
-import {
-  selectDoneApplyStates,
-  selectPendingToolCalls,
-} from "../../redux/selectors/selectToolCalls";
+import { selectPendingToolCalls } from "../../redux/selectors/selectToolCalls";
 import { selectCurrentOrg } from "../../redux/slices/profilesSlice";
 import {
   cancelToolCall,
@@ -175,7 +172,6 @@ export function Chat() {
     ) => {
       const stateSnapshot = reduxStore.getState();
       const latestPendingToolCalls = selectPendingToolCalls(stateSnapshot);
-      const latestPendingApplyStates = selectDoneApplyStates(stateSnapshot);
       const isCurrentlyInEdit = stateSnapshot.session.isInEdit;
       const codeToEditSnapshot = stateSnapshot.editModeState.codeToEdit;
       const selectedModelByRole =
@@ -241,12 +237,6 @@ export function Chat() {
         );
       });
 
-      // Reject all pending apply states
-      latestPendingApplyStates.forEach((applyState) => {
-        if (applyState.status !== "closed") {
-          ideMessenger.post("rejectDiff", applyState);
-        }
-      });
       const model = isCurrentlyInEdit
         ? (selectedModelByRole.edit ?? selectedModelByRole.chat)
         : selectedModelByRole.chat;

@@ -1,7 +1,9 @@
 import { act } from "@testing-library/react";
+import { addAndSelectMockLlm } from "../../../util/test/config";
 import { renderWithProviders } from "../../../util/test/render";
 import {
   getElementByTestId,
+  sendInputWithMockedResponse,
   verifyNotPresentByTestId,
   verifyNotPresentByText,
 } from "../../../util/test/utils";
@@ -76,5 +78,34 @@ test("Chat apply scenarios: show apply cancellation", async () => {
   await verifyNotPresentByTestId("notch-applying-cancel-button");
 
   // Cleanup spy
+  messengerPostSpy.mockRestore();
+});
+
+test("Chat apply scenarios: sending a new message preserves pending review diffs", async () => {
+  const { ideMessenger, store } = await renderWithProviders(<Chat />);
+
+  await act(async () => {
+    addAndSelectMockLlm(store, ideMessenger);
+  });
+
+  const messengerPostSpy = vi.spyOn(ideMessenger, "post");
+
+  ideMessenger.mockMessageToWebview("updateApplyState", {
+    status: "done",
+    streamId: "pending-review-stream",
+    filepath: "src/example.ts",
+  });
+
+  await getElementByTestId("accept-reject-all-buttons");
+
+  await sendInputWithMockedResponse(ideMessenger, "Continue work", [
+    { role: "assistant", content: "Continuing" },
+  ]);
+
+  expect(messengerPostSpy).not.toHaveBeenCalledWith(
+    "rejectDiff",
+    expect.objectContaining({ streamId: "pending-review-stream" }),
+  );
+
   messengerPostSpy.mockRestore();
 });
