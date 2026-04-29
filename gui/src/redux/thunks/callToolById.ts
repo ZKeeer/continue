@@ -31,6 +31,7 @@ import {
 import { ThunkApiType } from "../store";
 import { findToolCallById, logToolUsage } from "../util";
 import { streamResponseAfterToolCall } from "./streamResponseAfterToolCall";
+import { buildSubAgentDelegation } from "./subAgentToolRouter";
 
 // S-4: Tools that modify files and therefore require automatic post-edit verification
 const EDIT_TOOL_NAMES = new Set<string>([
@@ -166,11 +167,20 @@ export const callToolById = createAsyncThunk<
     streamResponse = respondImmediately;
   } else {
     // Tool is called on core side — with S-5 transient-error retry
+    const subAgentDelegation = buildSubAgentDelegation(
+      toolCallState,
+      availableTools ?? selectActiveTools(state),
+      state.config.config,
+    );
     let retryCount = 0;
     while (true) {
       const result = await extra.ideMessenger.request("tools/call", {
-        toolCall: toolCallState.toolCall,
-        ...(availableTools ? { availableTools } : {}),
+        toolCall: subAgentDelegation?.toolCall ?? toolCallState.toolCall,
+        ...(subAgentDelegation
+          ? { availableTools: subAgentDelegation.availableTools }
+          : availableTools
+            ? { availableTools }
+            : {}),
       });
 
       if (result.status === "error") {

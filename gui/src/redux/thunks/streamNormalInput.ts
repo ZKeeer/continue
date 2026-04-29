@@ -43,6 +43,7 @@ import { evaluateToolPolicies } from "./evaluateToolPolicies";
 import { preprocessToolCalls } from "./preprocessToolCallArgs";
 import { loadSession } from "./session";
 import { streamResponseAfterToolCall } from "./streamResponseAfterToolCall";
+import { getModelVisibleTools } from "./subAgentToolRouter";
 
 // Auto-compact threshold: trigger compaction when context usage exceeds this percentage
 const AUTO_COMPACT_THRESHOLD = 0.85;
@@ -201,6 +202,7 @@ export const streamNormalInput = createAsyncThunk<
         }
       }
     }
+    const modelVisibleTools = getModelVisibleTools(activeTools);
 
     // Use the centralized selector to determine if system message tools should be used
     const useNativeTools = state.config.config.experimental
@@ -213,9 +215,9 @@ export const streamNormalInput = createAsyncThunk<
 
     // Construct completion options
     let completionOptions: LLMFullCompletionOptions = {};
-    if (useNativeTools && activeTools.length > 0) {
+    if (useNativeTools && modelVisibleTools.length > 0) {
       completionOptions = {
-        tools: activeTools,
+        tools: modelVisibleTools,
       };
     }
 
@@ -229,14 +231,14 @@ export const streamNormalInput = createAsyncThunk<
     const baseSystemMessage = getBaseSystemMessage(
       state.session.mode,
       selectedChatModel,
-      activeTools,
+      modelVisibleTools,
     );
 
     const systemMessage = systemToolsFramework
       ? addSystemMessageToolsToSystemMessage(
           systemToolsFramework,
           baseSystemMessage,
-          activeTools,
+          modelVisibleTools,
         )
       : baseSystemMessage;
 
@@ -344,7 +346,7 @@ export const streamNormalInput = createAsyncThunk<
         },
         streamAborter.signal,
       );
-      if (systemToolsFramework && activeTools.length > 0) {
+      if (systemToolsFramework && modelVisibleTools.length > 0) {
         gen = interceptSystemToolCalls(
           gen,
           streamAborter,
@@ -412,8 +414,8 @@ export const streamNormalInput = createAsyncThunk<
               modelName: selectedChatModel.title,
               modelTitle: selectedChatModel.title,
               sessionId: state.session.id,
-              ...(!!activeTools.length && {
-                tools: activeTools.map((tool) => tool.function.name),
+              ...(!!modelVisibleTools.length && {
+                tools: modelVisibleTools.map((tool) => tool.function.name),
               }),
               ...(appliedRules.length > 0 && {
                 rules: appliedRules.map((rule) => ({

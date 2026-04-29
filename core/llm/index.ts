@@ -61,6 +61,7 @@ import {
   pruneRawPromptFromTop,
 } from "./countTokens.js";
 import { logLlmDebug } from "./debugLogging.js";
+import { prepareOpenAICompatibleMessagesForReasoning } from "./openaiHistoryPreprocessor.js";
 import {
   fromChatCompletionChunk,
   fromChatResponse,
@@ -120,7 +121,7 @@ function summarizeMessageContentForDebug(
     };
   }
 
-  if (content == null) {
+  if (content === null || content === undefined) {
     return {
       contentType: String(content),
     };
@@ -1188,6 +1189,33 @@ export abstract class BaseLLM implements ILLM {
     return body;
   }
 
+  protected shouldPrepareOpenAICompatibleHistoryForReasoning(
+    completionOptions: CompletionOptions,
+  ): boolean {
+    const modelIdentifier = [completionOptions.model, this.model, this.title]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+
+    return modelIdentifier.includes("qwen") || modelIdentifier.includes("qwq");
+  }
+
+  protected prepareOpenAICompatibleMessagesForReasoning(
+    messages: ChatMessage[],
+    completionOptions: CompletionOptions,
+  ): ChatMessage[] {
+    if (
+      !this.shouldPrepareOpenAICompatibleHistoryForReasoning(completionOptions)
+    ) {
+      return messages;
+    }
+
+    return prepareOpenAICompatibleMessagesForReasoning(messages, {
+      keepRecentStructuredToolRounds: 2,
+      stripReasoning: true,
+    });
+  }
+
   private _modifyCompletionOptions(
     completionOptions: CompletionOptions,
   ): CompletionOptions {
@@ -1402,6 +1430,11 @@ export abstract class BaseLLM implements ILLM {
 
       messages = compiledChatMessages;
     }
+
+    messages = this.prepareOpenAICompatibleMessagesForReasoning(
+      messages,
+      completionOptions,
+    );
 
     const messagesCopy = [...messages]; // templateMessages may modify messages.
 

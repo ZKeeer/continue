@@ -30,10 +30,13 @@ vi.mock(
 
 import { ModelDescription } from "core";
 import { serializeTool } from "core/tools";
+import { BuiltInToolNames } from "core/tools/builtIn";
 import {
   editFileTool,
   grepSearchTool,
+  manageTodoListTool,
   runTerminalCommandTool,
+  subAgentTool,
 } from "core/tools/definitions";
 import posthog from "posthog-js";
 import { resolveEditorContent } from "../../components/mainInput/TipTapEditor/utils/resolveEditorContent";
@@ -46,6 +49,8 @@ const editTool = serializeTool(editFileTool);
 const editName = editTool.function.name;
 const terminalTool = serializeTool(runTerminalCommandTool);
 const terminalName = terminalTool.function.name;
+const manageTodoTool = serializeTool(manageTodoListTool);
+const subAgentSerializedTool = serializeTool(subAgentTool);
 
 const mockGetBaseSystemMessage = vi.mocked(getBaseSystemMessage);
 
@@ -58,6 +63,13 @@ const mockClaudeModel: ModelDescription = {
   provider: "anthropic",
   underlyingProviderName: "anthropic",
   completionOptions: { reasoningBudgetTokens: 2048 },
+};
+
+const mockSubAgentModel: ModelDescription = {
+  title: "Qwen Sub-Agent",
+  model: "qwen-sub-agent",
+  provider: "openai",
+  underlyingProviderName: "openai",
 };
 
 function getRootStateWithClaude(): RootState {
@@ -108,6 +120,194 @@ beforeEach(() => {
 });
 
 describe("streamResponseThunk - tool calls", () => {
+  it("should route configured exploration tools through sub-agent without exposing sub_agent to the main model", async () => {
+    const initialState = getRootStateWithClaude();
+    initialState.session.history = [
+      {
+        message: {
+          id: "1",
+          role: "user",
+          content: "Search for apply state handling",
+        },
+        contextItems: [],
+      },
+    ];
+    initialState.ui.toolSettings = {
+      [grepName]: "allowedWithoutPermission",
+      [BuiltInToolNames.ManageTodoList]: "allowedWithoutPermission",
+    };
+    initialState.session.id = "session-123";
+    initialState.config.config.tools = [
+      grepTool,
+      manageTodoTool,
+      subAgentSerializedTool,
+    ];
+    initialState.config.config.modelsByRole.subagent = [mockSubAgentModel];
+    initialState.config.config.selectedModelByRole.subagent = mockSubAgentModel;
+
+    const mockStore = createMockStore(initialState);
+    const mockIdeMessenger = mockStore.mockIdeMessenger;
+    const requestSpy = vi.spyOn(mockIdeMessenger, "request");
+
+    mockIdeMessenger.responses["llm/compileChat"] = {
+      compiledChatMessages: [
+        { role: "user", content: "Search for apply state handling" },
+      ],
+      didPrune: false,
+      contextPercentage: 0.5,
+    };
+    mockIdeMessenger.responses["tools/call"] = {
+      contextItems: [
+        {
+          name: "Sub-Agent Result",
+          description: "Completed: run grep_search",
+          content: "The sub-agent searched for apply state handling.",
+          hidden: false,
+        },
+      ],
+      errorMessage: undefined,
+    };
+
+    async function* mockStreamGeneratorWithPlan(): AsyncGenerator<
+      AssistantChatMessage[],
+      PromptLog
+    > {
+      yield [{ role: "assistant", content: "I'll make a brief plan." }];
+      yield [
+        {
+          role: "assistant",
+          content: "",
+          toolCalls: [
+            {
+              id: "tool-call-plan",
+              type: "function",
+              function: {
+                name: BuiltInToolNames.ManageTodoList,
+                arguments: JSON.stringify({
+                  items: [
+                    {
+                      id: 1,
+                      title: "Search apply state",
+                      status: "in-progress",
+                    },
+                  ],
+                }),
+              },
+            },
+          ],
+        },
+      ];
+      return {
+        prompt: "Search for apply state handling",
+        completion: "I'll make a brief plan.",
+        modelProvider: "anthropic",
+        modelTitle: "Claude 3.5 Sonnet",
+      };
+    }
+
+    async function* mockStreamGeneratorWithGrep(): AsyncGenerator<
+      AssistantChatMessage[],
+      PromptLog
+    > {
+      yield [{ role: "assistant", content: "I'll search for that." }];
+      yield [
+        {
+          role: "assistant",
+          content: "",
+          toolCalls: [
+            {
+              id: "tool-call-grep",
+              type: "function",
+              function: {
+                name: grepName,
+                arguments: JSON.stringify({ query: "apply state" }),
+              },
+            },
+          ],
+        },
+      ];
+      return {
+        prompt: "Search for apply state handling",
+        completion: "I'll search for that.",
+        modelProvider: "anthropic",
+        modelTitle: "Claude 3.5 Sonnet",
+      };
+    }
+
+    let streamCallCount = 0;
+    mockIdeMessenger.llmStreamChat = vi.fn().mockImplementation(() => {
+      streamCallCount++;
+      if (streamCallCount === 1) {
+        return mockStreamGeneratorWithPlan();
+      }
+      if (streamCallCount === 2) {
+        return mockStreamGeneratorWithGrep();
+      }
+
+      async function* simpleGenerator(): AsyncGenerator<
+        AssistantChatMessage[],
+        PromptLog
+      > {
+        yield [{ role: "assistant", content: "Search completed." }];
+        return {
+          prompt: "continuing after tool",
+          completion: "Search completed.",
+          modelProvider: "anthropic",
+          modelTitle: "Claude 3.5 Sonnet",
+        };
+      }
+      return simpleGenerator();
+    });
+
+    await mockStore.dispatch(
+      streamResponseThunk({
+        editorState: mockEditorState,
+        modifiers: mockModifiers,
+      }) as any,
+    );
+
+    const firstCompileCall = requestSpy.mock.calls.find(
+      (call) => call[0] === "llm/compileChat",
+    );
+    const modelVisibleToolNames = firstCompileCall?.[1]?.options.tools.map(
+      (tool: any) => tool.function.name,
+    );
+    expect(modelVisibleToolNames).toContain(grepName);
+    expect(modelVisibleToolNames).toContain(BuiltInToolNames.ManageTodoList);
+    expect(modelVisibleToolNames).not.toContain(BuiltInToolNames.SubAgent);
+
+    const toolCallRequests = requestSpy.mock.calls.filter(
+      (call) => call[0] === "tools/call",
+    );
+    expect(toolCallRequests).toHaveLength(2);
+
+    const routedRequest = toolCallRequests.find(
+      (call) => call[1].toolCall.function.name === BuiltInToolNames.SubAgent,
+    )?.[1];
+    if (!routedRequest) {
+      throw new Error("Expected grep_search to be routed through sub_agent");
+    }
+    expect(routedRequest.toolCall.function.name).toBe(
+      BuiltInToolNames.SubAgent,
+    );
+    const routedArgs = JSON.parse(routedRequest.toolCall.function.arguments);
+    expect(routedArgs.description).toBe("Run grep_search");
+    expect(routedArgs.prompt).toContain("grep_search");
+    expect(routedArgs.prompt).toContain('"query":"apply state"');
+    expect(routedArgs.allowedTools).toEqual(
+      expect.arrayContaining([grepName, BuiltInToolNames.ManageTodoList]),
+    );
+    expect(routedArgs.allowedTools).not.toContain(BuiltInToolNames.SubAgent);
+
+    const availableToolNames = routedRequest.availableTools.map(
+      (tool: any) => tool.function.name,
+    );
+    expect(availableToolNames).toEqual(
+      expect.arrayContaining([grepName, BuiltInToolNames.ManageTodoList]),
+    );
+    expect(availableToolNames).not.toContain(BuiltInToolNames.SubAgent);
+  });
+
   it("should execute streaming flow with tool call execution", async () => {
     // Set up auto-approved tool setting for our test tool
     const initialState = getRootStateWithClaude();

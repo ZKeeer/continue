@@ -161,6 +161,64 @@ describe("handleApplyStateUpdate", () => {
         expect.objectContaining({ type: "session/updateApplyState" }),
       );
     });
+
+    it("should continue agent streaming when an edit apply reaches pending review", async () => {
+      const toolCallState: ToolCallState = {
+        toolCallId: "test-tool-call",
+        status: "calling",
+        toolCall: {
+          id: "test-tool-call",
+          function: {
+            name: "edit_existing_file",
+            arguments: "{}",
+          },
+          type: "function",
+        },
+        parsedArgs: {},
+      };
+
+      vi.mocked(findToolCallById).mockReturnValue(toolCallState);
+      mockGetState.mockReturnValue({
+        session: {
+          history: [],
+          codeBlockApplyStates: {
+            states: [],
+          },
+        },
+        config: { config: {} },
+        ui: { toolSettings: {} },
+      });
+
+      const applyState: ApplyState = {
+        streamId: "chat-stream",
+        toolCallId: "test-tool-call",
+        status: "done",
+        filepath: "file:///repo/test.txt",
+        numDiffs: 1,
+      };
+
+      const thunk = handleApplyStateUpdate(applyState);
+      await thunk(mockDispatch, mockGetState, mockExtra);
+
+      expect(acceptToolCall).toHaveBeenCalledWith({
+        toolCallId: "test-tool-call",
+      });
+      expect(updateToolCallOutput).toHaveBeenCalledWith({
+        toolCallId: "test-tool-call",
+        contextItems: [
+          {
+            name: "Edit Pending Review",
+            content:
+              "Successfully edited file:///repo/test.txt. The diff is pending user review.",
+            description: "",
+            hidden: true,
+          },
+        ],
+      });
+      expect(streamResponseAfterToolCall).toHaveBeenCalledWith({
+        toolCallId: "test-tool-call",
+      });
+    });
   });
 
   describe("closed status handling", () => {

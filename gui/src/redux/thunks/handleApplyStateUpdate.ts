@@ -63,9 +63,44 @@ export const handleApplyStateUpdate = createAsyncThunk<
           });
         }
 
+        if (
+          applyState.status === "done" &&
+          toolCallState?.toolCall.function.name &&
+          isEditTool(toolCallState.toolCall.function.name) &&
+          toolCallState.status === "calling"
+        ) {
+          dispatch(
+            acceptToolCall({
+              toolCallId: applyState.toolCallId,
+            }),
+          );
+          dispatch(
+            updateToolCallOutput({
+              toolCallId: applyState.toolCallId,
+              contextItems: [
+                {
+                  name: "Edit Pending Review",
+                  content: `Successfully edited ${applyState.filepath}. The diff is pending user review.`,
+                  description: "",
+                  hidden: true,
+                },
+              ],
+            }),
+          );
+          void dispatch(
+            streamResponseAfterToolCall({
+              toolCallId: applyState.toolCallId,
+            }),
+          );
+        }
+
         if (applyState.status === "closed") {
           if (toolCallState) {
             const accepted = toolCallState.status !== "canceled";
+            const alreadyContinuedOnPendingReview =
+              toolCallState.status === "done" &&
+              toolCallState.toolCall.function.name &&
+              isEditTool(toolCallState.toolCall.function.name);
 
             logToolUsage(toolCallState, accepted, true, extra.ideMessenger);
 
@@ -86,7 +121,7 @@ export const handleApplyStateUpdate = createAsyncThunk<
               );
             }
 
-            if (accepted) {
+            if (accepted && !alreadyContinuedOnPendingReview) {
               if (toolCallState.status !== "errored") {
                 dispatch(
                   acceptToolCall({

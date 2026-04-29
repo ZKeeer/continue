@@ -276,7 +276,11 @@ class OpenAI extends BaseLLM {
     options: CompletionOptions,
     messages: ChatMessage[],
   ): ChatCompletionCreateParams {
-    const finalOptions = toChatBody(messages, options, {
+    const preparedMessages = this.prepareOpenAICompatibleMessagesForReasoning(
+      messages,
+      options,
+    );
+    const finalOptions = toChatBody(preparedMessages, options, {
       includeReasoningField: this.supportsReasoningField,
       includeReasoningDetailsField: this.supportsReasoningDetailsField,
       includeReasoningContentField: this.supportsReasoningContentField,
