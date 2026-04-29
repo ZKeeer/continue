@@ -16,7 +16,7 @@ import type {
   ResponseStreamEvent,
 } from "openai/resources/responses/responses.js";
 import { z } from "zod";
-import { isLlmDebugLoggingEnabled, logLlmDebug } from "../debugLogging.js";
+import { logLlmDebug, summarizeLlmRequestForDebug } from "../debugLogging.js";
 import { OpenAIConfigSchema } from "../types.js";
 import { customFetch } from "../util.js";
 import {
@@ -32,155 +32,6 @@ import {
   responseToChatCompletion,
   toResponsesParams,
 } from "./openaiResponses.js";
-
-function truncateForDebug(value: string, maxLength = 160): string {
-  return value.length > maxLength
-    ? `${value.slice(0, maxLength)}...<truncated ${value.length - maxLength} chars>`
-    : value;
-}
-
-function summarizeMessageContentForDebug(
-  content: unknown,
-): Record<string, unknown> {
-  if (typeof content === "string") {
-    return {
-      contentType: "string",
-      textLength: content.length,
-      preview: truncateForDebug(content),
-    };
-  }
-
-  if (Array.isArray(content)) {
-    return {
-      contentType: "array",
-      partCount: content.length,
-      partTypes: content.map((part: any) => part?.type ?? typeof part),
-      textLength: content.reduce((total, part: any) => {
-        if (part?.type === "text" && typeof part.text === "string") {
-          return total + part.text.length;
-        }
-        return total;
-      }, 0),
-    };
-  }
-
-  return {
-    contentType: content == null ? String(content) : typeof content,
-  };
-}
-
-type DebugMessageSummary = {
-  index: number;
-  role: unknown;
-  contentType?: unknown;
-  textLength?: number;
-  preview?: string;
-  partCount?: number;
-  partTypes?: unknown[];
-  hasToolCalls: boolean;
-  toolCallCount: number;
-  hasReasoning: boolean;
-  hasReasoningContent: boolean;
-  reasoningContentLength?: number;
-  reasoningDetailsCount: number;
-};
-
-function summarizeChatBodyForDebug(
-  body: ChatCompletionCreateParams,
-): Record<string, unknown> {
-  const messages = Array.isArray(body.messages) ? body.messages : [];
-  const messageSummaries: DebugMessageSummary[] = messages.map(
-    (message: any, index) => {
-      const contentSummary = summarizeMessageContentForDebug(
-        message?.content,
-      ) as DebugMessageSummary;
-      return {
-        ...contentSummary,
-        index,
-        role: message?.role,
-        hasToolCalls:
-          Array.isArray(message?.tool_calls) && message.tool_calls.length > 0,
-        toolCallCount: Array.isArray(message?.tool_calls)
-          ? message.tool_calls.length
-          : 0,
-        hasReasoning: Object.prototype.hasOwnProperty.call(
-          message ?? {},
-          "reasoning",
-        ),
-        hasReasoningContent: Object.prototype.hasOwnProperty.call(
-          message ?? {},
-          "reasoning_content",
-        ),
-        reasoningContentLength:
-          typeof message?.reasoning_content === "string"
-            ? message.reasoning_content.length
-            : undefined,
-        reasoningDetailsCount: Array.isArray(message?.reasoning_details)
-          ? message.reasoning_details.length
-          : 0,
-      };
-    },
-  );
-
-  const suspiciousFields = new Set<string>();
-  if (Object.prototype.hasOwnProperty.call(body, "stream_options")) {
-    suspiciousFields.add("stream_options");
-  }
-  if (Object.prototype.hasOwnProperty.call(body, "prediction")) {
-    suspiciousFields.add("prediction");
-  }
-  if (Object.prototype.hasOwnProperty.call(body, "tool_choice")) {
-    suspiciousFields.add("tool_choice");
-  }
-  if (Array.isArray(body.tools) && body.tools.length > 0) {
-    suspiciousFields.add("tools");
-  }
-  if (Object.prototype.hasOwnProperty.call(body, "parallel_tool_calls")) {
-    suspiciousFields.add("parallel_tool_calls");
-  }
-  if (messageSummaries.some((message) => message.hasReasoning)) {
-    suspiciousFields.add("message.reasoning");
-  }
-  if (messageSummaries.some((message) => message.hasReasoningContent)) {
-    suspiciousFields.add("message.reasoning_content");
-  }
-  if (
-    messageSummaries.some(
-      (message) =>
-        typeof message.reasoningDetailsCount === "number" &&
-        message.reasoningDetailsCount > 0,
-    )
-  ) {
-    suspiciousFields.add("message.reasoning_details");
-  }
-
-  return {
-    model: body.model,
-    stream: body.stream,
-    maxTokens: (body as any).max_tokens,
-    maxCompletionTokens: (body as any).max_completion_tokens,
-    temperature: body.temperature,
-    topP: body.top_p,
-    stopCount: Array.isArray(body.stop) ? body.stop.length : body.stop ? 1 : 0,
-    toolChoice: body.tool_choice,
-    toolCount: Array.isArray(body.tools) ? body.tools.length : 0,
-    parallelToolCalls: (body as any).parallel_tool_calls,
-    hasPrediction: Object.prototype.hasOwnProperty.call(body, "prediction"),
-    hasStreamOptions: Object.prototype.hasOwnProperty.call(
-      body,
-      "stream_options",
-    ),
-    messageCount: messageSummaries.length,
-    totalMessageTextLength: messageSummaries.reduce(
-      (total, message) =>
-        total +
-        (typeof message.textLength === "number" ? message.textLength : 0),
-      0,
-    ),
-    messageSummaries,
-    suspiciousFields: [...suspiciousFields],
-  };
-}
 
 function summarizeOpenAIErrorForDebug(error: unknown): Record<string, unknown> {
   const err = error as any;
@@ -201,7 +52,6 @@ function summarizeOpenAIErrorForDebug(error: unknown): Record<string, unknown> {
     requestId: err?.request_id ?? err?.requestId,
     responseHeaders,
     causeMessage: err?.cause?.message,
-    errorPayload: err?.error,
   };
 }
 
@@ -209,91 +59,6 @@ function cloneChatBodyForDebug<T extends ChatCompletionCreateParams>(
   body: T,
 ): T {
   return JSON.parse(JSON.stringify(body));
-}
-
-/**
- * Audit every assistant message's tool_calls[].function.arguments.
- * Per the OpenAI spec this field is a STRING that the server will
- * json.loads() again. A malformed/truncated string here is the classic
- * trigger of `unexpected end of data` 400 errors from strict servers
- * like sglang / vLLM. We log per-call: length, JSON-parse validity,
- * head/tail preview so a truncation (e.g. arguments ending mid-string)
- * is visible at a glance.
- */
-function auditToolCallArguments(
-  label: string,
-  body: ChatCompletionCreateParams,
-): void {
-  if (!isLlmDebugLoggingEnabled()) {
-    return;
-  }
-
-  const messages = Array.isArray(body.messages) ? body.messages : [];
-  const findings: Array<Record<string, unknown>> = [];
-  messages.forEach((message: any, msgIndex) => {
-    if (!Array.isArray(message?.tool_calls)) return;
-    message.tool_calls.forEach((tc: any, tcIndex: number) => {
-      const args = tc?.function?.arguments;
-      const argsType = typeof args;
-      const isString = argsType === "string";
-      const length = isString ? args.length : -1;
-      let parseOk = false;
-      let parseError: string | undefined;
-      if (isString) {
-        try {
-          JSON.parse(args);
-          parseOk = true;
-        } catch (e: any) {
-          parseError = e?.message;
-        }
-      }
-      const head = isString ? args.slice(0, 80) : undefined;
-      const tail = isString && length > 80 ? args.slice(-80) : undefined;
-      findings.push({
-        msgIndex,
-        role: message?.role,
-        tcIndex,
-        id: tc?.id,
-        name: tc?.function?.name,
-        argsType,
-        length,
-        parseOk,
-        parseError,
-        head,
-        tail,
-      });
-    });
-  });
-  const invalid = findings.filter((f) => f.argsType === "string" && !f.parseOk);
-  console.log(
-    `[OpenAIApi][toolCallAudit] ${label} totalToolCalls=${findings.length} invalidJsonArgs=${invalid.length}`,
-    JSON.stringify(findings, null, 2),
-  );
-}
-
-/**
- * Compute serialized body size so the reader can cross-check against
- * what is actually written to the socket in fetchwithRequestOptions.
- * If the two numbers disagree we have a string-level truncation in
- * between (that is exactly the "4096-style" concern).
- */
-function measureSerializedBodyForDebug(body: ChatCompletionCreateParams): {
-  bodyLength: number;
-  tail: string;
-} {
-  let serialized = "";
-  try {
-    serialized = JSON.stringify(body);
-  } catch {
-    return { bodyLength: -1, tail: "" };
-  }
-  return {
-    bodyLength: serialized.length,
-    tail:
-      serialized.length > 120
-        ? serialized.slice(serialized.length - 120)
-        : serialized,
-  };
 }
 
 export class OpenAIApi implements BaseLlmApi {
@@ -403,8 +168,8 @@ export class OpenAIApi implements BaseLlmApi {
           apiBase: this.apiBase,
           operation,
           error: summarizeOpenAIErrorForDebug(error),
-          originalRequest: summarizeChatBodyForDebug(originalBody),
-          finalRequest: summarizeChatBodyForDebug(finalBody),
+          originalRequest: summarizeLlmRequestForDebug(originalBody),
+          finalRequest: summarizeLlmRequestForDebug(finalBody),
         },
         null,
         2,
@@ -425,16 +190,9 @@ export class OpenAIApi implements BaseLlmApi {
     logLlmDebug("OpenAI chatCompletionNonStream request params", {
       apiBase: this.apiBase,
       requestOptions: this.config.requestOptions,
-      originalBody,
-      finalBody,
+      originalRequest: summarizeLlmRequestForDebug(originalBody),
+      finalRequest: summarizeLlmRequestForDebug(finalBody),
     });
-    auditToolCallArguments("preSend.nonStream", finalBody);
-    {
-      const m = measureSerializedBodyForDebug(finalBody);
-      console.log(
-        `[OpenAIApi][preSend] nonStream serializedBodyLength=${m.bodyLength} tail=${JSON.stringify(m.tail)}`,
-      );
-    }
     try {
       const response = await this.openai.chat.completions.create(finalBody, {
         signal,
@@ -443,10 +201,9 @@ export class OpenAIApi implements BaseLlmApi {
     } catch (error) {
       logLlmDebug("OpenAI chatCompletionNonStream error params", {
         apiBase: this.apiBase,
-        request: finalBody,
+        request: summarizeLlmRequestForDebug(finalBody),
         error,
       });
-      auditToolCallArguments("onError.nonStream", finalBody);
       this.logChatCompletionFailure(
         "chatCompletionNonStream",
         error,
@@ -472,16 +229,9 @@ export class OpenAIApi implements BaseLlmApi {
     logLlmDebug("OpenAI chatCompletionStream request params", {
       apiBase: this.apiBase,
       requestOptions: this.config.requestOptions,
-      originalBody,
-      finalBody,
+      originalRequest: summarizeLlmRequestForDebug(originalBody),
+      finalRequest: summarizeLlmRequestForDebug(finalBody),
     });
-    auditToolCallArguments("preSend.stream", finalBody);
-    {
-      const m = measureSerializedBodyForDebug(finalBody);
-      console.log(
-        `[OpenAIApi][preSend] stream serializedBodyLength=${m.bodyLength} tail=${JSON.stringify(m.tail)}`,
-      );
-    }
     try {
       const response = await this.openai.chat.completions.create(finalBody, {
         signal,
@@ -503,10 +253,9 @@ export class OpenAIApi implements BaseLlmApi {
     } catch (error) {
       logLlmDebug("OpenAI chatCompletionStream error params", {
         apiBase: this.apiBase,
-        request: finalBody,
+        request: summarizeLlmRequestForDebug(finalBody),
         error,
       });
-      auditToolCallArguments("onError.stream", finalBody);
       this.logChatCompletionFailure(
         "chatCompletionStream",
         error,
@@ -605,8 +354,8 @@ export class OpenAIApi implements BaseLlmApi {
     logLlmDebug("OpenAI responsesNonStream request params", {
       apiBase: this.apiBase,
       requestOptions: this.config.requestOptions,
-      chatCompletionBody: body,
-      responsesParams: params,
+      chatCompletionRequest: summarizeLlmRequestForDebug(body),
+      responsesRequest: summarizeLlmRequestForDebug(params),
     });
     const response = (await this.openai.responses.create(params, {
       signal,
@@ -626,8 +375,8 @@ export class OpenAIApi implements BaseLlmApi {
     logLlmDebug("OpenAI responsesStream request params", {
       apiBase: this.apiBase,
       requestOptions: this.config.requestOptions,
-      chatCompletionBody: body,
-      responsesParams: params,
+      chatCompletionRequest: summarizeLlmRequestForDebug(body),
+      responsesRequest: summarizeLlmRequestForDebug(params),
     });
 
     const state = createResponsesStreamState({

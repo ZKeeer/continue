@@ -35,7 +35,7 @@ function isLlmDebugLoggingEnabled(): boolean {
   return value !== "0" && value !== "false" && value !== "off";
 }
 
-function safeJsonParseBody(body: BodyInit | null | undefined): unknown {
+function parseBodyForSummary(body: BodyInit | null | undefined): unknown {
   if (typeof body !== "string") {
     return body;
   }
@@ -44,6 +44,132 @@ function safeJsonParseBody(body: BodyInit | null | undefined): unknown {
   } catch {
     return body;
   }
+}
+
+function getTextLength(value: unknown): number {
+  if (typeof value === "string") {
+    return value.length;
+  }
+  if (Array.isArray(value)) {
+    return value.reduce(
+      (total, nestedValue) => total + getTextLength(nestedValue),
+      0,
+    );
+  }
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    if (typeof record.text === "string") {
+      return record.text.length;
+    }
+    if (typeof record.content === "string") {
+      return record.content.length;
+    }
+    if (Array.isArray(record.content)) {
+      return getTextLength(record.content);
+    }
+  }
+  return 0;
+}
+
+function getContentSummary(content: unknown): Record<string, unknown> {
+  if (typeof content === "string") {
+    return {
+      contentType: "string",
+      textLength: content.length,
+    };
+  }
+
+  if (Array.isArray(content)) {
+    return {
+      contentType: "array",
+      partCount: content.length,
+      partTypes: content.map((part: any) => part?.type ?? typeof part),
+      textLength: getTextLength(content),
+    };
+  }
+
+  return {
+    contentType: content == null ? String(content) : typeof content,
+    textLength: getTextLength(content),
+  };
+}
+
+function getRequestItemSummaries(
+  items: unknown,
+): Array<Record<string, unknown>> {
+  if (!Array.isArray(items)) {
+    return [];
+  }
+
+  return items.map((item: any, index) => ({
+    ...getContentSummary(item?.content ?? item),
+    index,
+    role: item?.role,
+    hasToolCalls: Array.isArray(item?.tool_calls) && item.tool_calls.length > 0,
+    toolCallCount: Array.isArray(item?.tool_calls) ? item.tool_calls.length : 0,
+  }));
+}
+
+export function summarizeLlmRequestBodyForDebug(
+  body: BodyInit | null | undefined,
+): Record<string, unknown> {
+  const parsedBody = parseBodyForSummary(body) as any;
+  if (
+    !parsedBody ||
+    typeof parsedBody !== "object" ||
+    Array.isArray(parsedBody)
+  ) {
+    return {
+      bodyType: parsedBody == null ? String(parsedBody) : typeof parsedBody,
+    };
+  }
+
+  const messageSummaries = getRequestItemSummaries(parsedBody.messages);
+  const inputSummaries = getRequestItemSummaries(parsedBody.input);
+
+  return {
+    model: parsedBody.model,
+    stream: parsedBody.stream,
+    maxTokens: parsedBody.max_tokens,
+    maxCompletionTokens: parsedBody.max_completion_tokens,
+    maxOutputTokens: parsedBody.max_output_tokens,
+    temperature: parsedBody.temperature,
+    topP: parsedBody.top_p,
+    reasoningEffort:
+      parsedBody.reasoning_effort ?? parsedBody.reasoning?.effort,
+    verbosity: parsedBody.verbosity ?? parsedBody.text?.verbosity,
+    stopCount: Array.isArray(parsedBody.stop)
+      ? parsedBody.stop.length
+      : parsedBody.stop
+        ? 1
+        : 0,
+    toolChoice: parsedBody.tool_choice,
+    toolCount: Array.isArray(parsedBody.tools) ? parsedBody.tools.length : 0,
+    parallelToolCalls: parsedBody.parallel_tool_calls,
+    hasPrediction: Object.prototype.hasOwnProperty.call(
+      parsedBody,
+      "prediction",
+    ),
+    hasStreamOptions: Object.prototype.hasOwnProperty.call(
+      parsedBody,
+      "stream_options",
+    ),
+    messageCount: messageSummaries.length,
+    inputCount: inputSummaries.length,
+    totalMessageTextLength: messageSummaries.reduce(
+      (total, message) =>
+        total +
+        (typeof message.textLength === "number" ? message.textLength : 0),
+      0,
+    ),
+    totalInputTextLength: inputSummaries.reduce(
+      (total, input) =>
+        total + (typeof input.textLength === "number" ? input.textLength : 0),
+      0,
+    ),
+    messageSummaries,
+    inputSummaries,
+  };
 }
 
 function stringifyLlmDebug(value: unknown): string {
@@ -92,7 +218,7 @@ function logLlmWireRequest(
         url: url.toString(),
         headers: redactRecord(headers),
         proxy: proxy && !shouldBypass ? proxy : undefined,
-        body: safeJsonParseBody(body),
+        body: summarizeLlmRequestBodyForDebug(body),
         rawBodyLength: typeof body === "string" ? body.length : undefined,
       },
     )}`,
@@ -141,26 +267,6 @@ function logRequest(
   curlCommand += ` '${url.toString()}'`;
   console.log(`Equivalent curl: ${curlCommand}`);
   console.log("=====================");
-}
-
-async function logResponse(resp: Response) {
-  console.log("=== FETCH RESPONSE ===");
-  console.log(`Status: ${resp.status} ${resp.statusText}`);
-  console.log("Response Headers:");
-  resp.headers.forEach((value, key) => {
-    console.log(`  ${key}: ${value}`);
-  });
-
-  // TODO: For streamed responses, this caused the response to be consumed and the connection would just hang open
-  // Clone response to read body without consuming it
-  // const respClone = resp.clone();
-  // try {
-  //   const responseText = await respClone.text();
-  //   console.log(`Response Body: ${responseText}`);
-  // } catch (e) {
-  //   console.log("Could not read response body:", e);
-  // }
-  console.log("======================");
 }
 
 function logError(error: unknown) {
@@ -250,23 +356,6 @@ export async function fetchwithRequestOptions(
 
   logLlmWireRequest(method, url, headers, finalBody, proxy, shouldBypass);
 
-  // Lightweight always-on diagnostic for chat/completions POSTs so we can
-  // confirm the on-the-wire body size matches what the caller serialized
-  // (any mismatch == a string-level truncation between SDK and fetch).
-  if (
-    method === "POST" &&
-    typeof url.pathname === "string" &&
-    url.pathname.endsWith("/chat/completions") &&
-    typeof finalBody === "string"
-  ) {
-    const bodyStr = finalBody as string;
-    const tail =
-      bodyStr.length > 120 ? bodyStr.slice(bodyStr.length - 120) : bodyStr;
-    console.log(
-      `[fetchwithRequestOptions][preWire] ${String(url)} bodyLength=${bodyStr.length} tail=${JSON.stringify(tail)}`,
-    );
-  }
-
   // Verbose logging for debugging - log request details
   if (process.env.VERBOSE_FETCH) {
     logRequest(method, url, headers, finalBody, proxy, shouldBypass);
@@ -280,11 +369,6 @@ export async function fetchwithRequestOptions(
       headers: headers,
       agent: agent,
     });
-
-    // Verbose logging for debugging - log response details
-    if (process.env.VERBOSE_FETCH) {
-      await logResponse(resp);
-    }
 
     if (!resp.ok) {
       const requestId = resp.headers.get("x-request-id");
