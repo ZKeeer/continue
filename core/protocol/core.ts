@@ -39,6 +39,7 @@ import {
   SiteIndexingConfig,
   SlashCommandDescWithSource,
   StreamDiffLinesPayload,
+  Tool,
   ToolCall,
 } from "../";
 import { AutocompleteCodeSnippet } from "../autocomplete/snippets/types";
@@ -322,7 +323,7 @@ export type ToCoreFromIdeOrWebviewProtocol = {
 
   "auth/getAuthUrl": [{ useOnboarding: boolean }, { url: string }];
   "tools/call": [
-    { toolCall: ToolCall },
+    { toolCall: ToolCall; availableTools?: Tool[] },
     {
       contextItems: ContextItem[];
       errorMessage?: string;

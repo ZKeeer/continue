@@ -1,36 +1,18 @@
-import os from "os";
-import { Tool } from "../..";
-import { BUILT_IN_GROUP_NAME, BuiltInToolNames } from "../builtIn";
 import {
   evaluateTerminalCommandSecurity,
   ToolPolicy,
 } from "@continuedev/terminal-security";
+import { Tool } from "../..";
+import { BUILT_IN_GROUP_NAME, BuiltInToolNames } from "../builtIn";
+import { getTerminalShellRuntimeNote } from "../implementations/shellRuntime";
 
-/**
- * Get the preferred shell for the current platform
- * @returns The preferred shell command or path
- */
-function getPreferredShell(): string {
-  const platform = os.platform();
+const SHELL_RUNTIME_NOTE = getTerminalShellRuntimeNote();
 
-  if (platform === "win32") {
-    return "powershell.exe";
-  } else if (platform === "darwin") {
-    return process.env.SHELL || "/bin/zsh";
-  } else {
-    // Linux and other Unix-like systems
-    return process.env.SHELL || "/bin/bash";
-  }
-}
-
-const PLATFORM_INFO = `Choose terminal commands and scripts optimized for ${os.platform()} and ${os.arch()} and shell ${getPreferredShell()}.`;
-
-const RUN_COMMAND_NOTES = `The shell is not stateful and will not remember any previous commands.\
-      When a command is run in the background ALWAYS suggest using shell commands to stop it; NEVER suggest using Ctrl+C.\
-      When suggesting subsequent shell commands ALWAYS format them in shell command blocks.\
-      Do NOT perform actions requiring special/admin privileges.\
-      IMPORTANT: To edit files, use Edit/MultiEdit tools instead of bash commands (sed, awk, etc).\
-      ${PLATFORM_INFO}`;
+const RUN_COMMAND_NOTES = `${SHELL_RUNTIME_NOTE}
+      When a command is run in the background ALWAYS suggest using shell commands to stop it; NEVER suggest using Ctrl+C.
+      When suggesting subsequent shell commands ALWAYS format them in shell command blocks.
+      Do NOT perform actions requiring special/admin privileges.
+      IMPORTANT: To edit files, use Edit/MultiEdit tools instead of bash commands (sed, awk, etc).`;
 
 export const runTerminalCommandTool: Tool = {
   type: "function",

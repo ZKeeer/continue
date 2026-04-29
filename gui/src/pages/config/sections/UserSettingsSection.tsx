@@ -11,6 +11,7 @@ import { IdeMessengerContext } from "../../../context/IdeMessenger";
 import { useAppDispatch, useAppSelector } from "../../../redux/hooks";
 import { updateConfig } from "../../../redux/slices/configSlice";
 import { selectCurrentOrg } from "../../../redux/slices/profilesSlice";
+import { setAgentMaxBudgetIterations } from "../../../redux/slices/uiSlice";
 import { setLocalStorage } from "../../../util/localStorage";
 import { ConfigHeader } from "../components/ConfigHeader";
 import { ContinueFeaturesMenu } from "../components/ContinueFeaturesMenu";
@@ -22,6 +23,9 @@ export function UserSettingsSection() {
   const ideMessenger = useContext(IdeMessengerContext);
   const config = useAppSelector((state) => state.config.config);
   const currentOrg = useAppSelector(selectCurrentOrg);
+  const agentMaxBudgetIterations = useAppSelector(
+    (state) => state.ui.agent.maxBudgetIterations,
+  );
 
   const [showExperimental, setShowExperimental] = useState(false);
   const { session } = useAuth();
@@ -161,6 +165,17 @@ export function UserSettingsSection() {
                   onChange={(value) =>
                     handleUpdate({ displayRawMarkdown: !value })
                   }
+                />
+                <UserSetting
+                  type="number"
+                  title="Agent Iteration Budget"
+                  description="Maximum agent loop iterations before pausing the run with a budget message."
+                  value={agentMaxBudgetIterations}
+                  onChange={(value) =>
+                    dispatch(setAgentMaxBudgetIterations(value))
+                  }
+                  min={1}
+                  max={1000}
                 />
               </div>
             </Card>

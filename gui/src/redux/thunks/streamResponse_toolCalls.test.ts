@@ -1,7 +1,7 @@
 import { JSONContent } from "@tiptap/core";
 import { AssistantChatMessage, InputModifiers, PromptLog } from "core";
 import { describe, expect, it, vi } from "vitest";
-import { createMockStore } from "../../util/test/mockStore";
+import { createMockStore, getEmptyRootState } from "../../util/test/mockStore";
 import { streamResponseThunk } from "./streamResponse";
 
 // Mock system message construction to keep test readable
@@ -39,7 +39,6 @@ import posthog from "posthog-js";
 import { resolveEditorContent } from "../../components/mainInput/TipTapEditor/utils/resolveEditorContent";
 import { MockIdeMessenger } from "../../context/MockIdeMessenger";
 import { RootState } from "../store";
-import { getRootStateWithClaude } from "./streamResponse.test";
 
 const grepTool = serializeTool(grepSearchTool);
 const grepName = grepTool.function.name;
@@ -60,6 +59,23 @@ const mockClaudeModel: ModelDescription = {
   underlyingProviderName: "anthropic",
   completionOptions: { reasoningBudgetTokens: 2048 },
 };
+
+function getRootStateWithClaude(): RootState {
+  const state = getEmptyRootState();
+  return {
+    ...state,
+    config: {
+      ...state.config,
+      config: {
+        ...state.config.config,
+        selectedModelByRole: {
+          ...state.config.config.selectedModelByRole,
+          chat: mockClaudeModel,
+        },
+      },
+    },
+  };
+}
 
 // Mock editor state (what user types in the input)
 const mockEditorState: JSONContent = {

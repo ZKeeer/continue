@@ -374,6 +374,14 @@ export async function configYamlToContinueConfig(options: {
     }
   }
 
+  if (
+    !continueConfig.selectedModelByRole.subagent &&
+    continueConfig.modelsByRole.subagent.length > 0
+  ) {
+    continueConfig.selectedModelByRole.subagent =
+      continueConfig.modelsByRole.subagent[0];
+  }
+
   // Add transformers js to the embed models in vs code if not already added
   if (
     ideInfo.ideType === "vscode" &&

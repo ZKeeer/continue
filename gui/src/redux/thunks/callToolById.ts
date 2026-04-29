@@ -1,5 +1,6 @@
 import { createAsyncThunk, unwrapResult } from "@reduxjs/toolkit";
-import { ContextItem, McpUiState } from "core";
+import { ContextItem, McpUiState, Tool } from "core";
+import { applyToolOverrides } from "core/tools/applyToolOverrides";
 import { BuiltInToolNames, CLIENT_TOOLS_IMPLS } from "core/tools/builtIn";
 import { ContinueError, ContinueErrorReason } from "core/util/errors";
 import posthog from "posthog-js";
@@ -18,6 +19,7 @@ import {
   isTransientMessage,
   sleep,
 } from "../../util/toolRetry";
+import { selectActiveTools } from "../selectors/selectActiveTools";
 import { selectSelectedChatModel } from "../slices/configSlice";
 import {
   acceptToolCall,
@@ -40,10 +42,16 @@ const EDIT_TOOL_NAMES = new Set<string>([
 
 export const callToolById = createAsyncThunk<
   void,
-  { toolCallId: string; isAutoApproved?: boolean; depth?: number },
+  {
+    toolCallId: string;
+    isAutoApproved?: boolean;
+    depth?: number;
+    deferContinuation?: boolean;
+    availableTools?: Tool[];
+  },
   ThunkApiType
 >("chat/callTool", async (inputs, { dispatch, extra, getState }) => {
-  const { toolCallId, isAutoApproved, depth = 0 } = inputs;
+  const { toolCallId, isAutoApproved, depth = 0, deferContinuation } = inputs;
 
   const state = getState();
   const toolCallState = findToolCallById(state.session.history, toolCallId);
@@ -60,6 +68,7 @@ export const callToolById = createAsyncThunk<
   const startTime = Date.now();
 
   const selectedChatModel = selectSelectedChatModel(state);
+  let availableTools = inputs.availableTools;
 
   posthog.capture("tool_call_decision", {
     model: selectedChatModel,
@@ -70,6 +79,19 @@ export const callToolById = createAsyncThunk<
 
   if (!selectedChatModel) {
     throw new Error("No model selected");
+  }
+
+  if (
+    !availableTools &&
+    toolCallState.toolCall.function.name === BuiltInToolNames.SubAgent
+  ) {
+    availableTools = selectActiveTools(state);
+    if (selectedChatModel.toolOverrides?.length) {
+      availableTools = applyToolOverrides(
+        availableTools,
+        selectedChatModel.toolOverrides,
+      ).tools;
+    }
   }
 
   dispatch(
@@ -148,6 +170,7 @@ export const callToolById = createAsyncThunk<
     while (true) {
       const result = await extra.ideMessenger.request("tools/call", {
         toolCall: toolCallState.toolCall,
+        ...(availableTools ? { availableTools } : {}),
       });
 
       if (result.status === "error") {
@@ -333,6 +356,10 @@ export const callToolById = createAsyncThunk<
           toolCallId,
         }),
       );
+    }
+
+    if (deferContinuation) {
+      return;
     }
 
     // Send to the LLM to continue the conversation

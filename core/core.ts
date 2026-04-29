@@ -46,6 +46,7 @@ import {
   ModelDescription,
   Position,
   RangeInFile,
+  Tool,
   ToolCall,
   type ContextItem,
   type IDE,
@@ -1225,8 +1226,8 @@ export class Core {
       return { url };
     });
 
-    on("tools/call", async ({ data: { toolCall } }) =>
-      this.handleToolCall(toolCall),
+    on("tools/call", async ({ data: { toolCall, availableTools } }) =>
+      this.handleToolCall(toolCall, availableTools),
     );
 
     on(
@@ -1333,7 +1334,7 @@ export class Core {
     });
   }
 
-  private async handleToolCall(toolCall: ToolCall) {
+  private async handleToolCall(toolCall: ToolCall, availableTools?: Tool[]) {
     const { config } = await this.configHandler.loadConfig();
     if (!config) {
       throw new Error("Config not loaded");
@@ -1360,7 +1361,9 @@ export class Core {
     };
 
     const result = await callTool(tool, toolCall, {
-      config,
+      config: availableTools?.length
+        ? { ...config, tools: availableTools }
+        : config,
       ide: this.ide,
       llm: config.selectedModelByRole.chat,
       fetch: (url, init) =>

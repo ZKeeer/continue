@@ -8,7 +8,7 @@ import {
 } from "../..";
 import { BuiltInToolNames } from "../builtIn";
 import { callBuiltInTool } from "../callTool";
-import { getStringArg } from "../parseArgs";
+import { getOptionalStringArg, getStringArg } from "../parseArgs";
 
 const MAX_SUB_AGENT_ITERATIONS = 15;
 const TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
@@ -69,21 +69,25 @@ export interface SubAgentStructuredResult {
  * at the end of its final response.  Returns null on parse failure so callers
  * can fall back gracefully to the raw text.
  */
-function parseStructuredResult(
-  text: string,
-): SubAgentStructuredResult | null {
+function parseStructuredResult(text: string): SubAgentStructuredResult | null {
   const match = text.match(/---RESULT-V2---\s*([\s\S]*?)\s*---END-V2---/);
   if (!match) return null;
   try {
     const parsed = JSON.parse(match[1]);
+    let failureReason: string | null = null;
+    if (parsed.failureReason !== null && parsed.failureReason !== undefined) {
+      failureReason = String(parsed.failureReason);
+    }
+
     return {
       summary: String(parsed.summary ?? ""),
-      evidence: Array.isArray(parsed.evidence) ? parsed.evidence.map(String) : [],
+      evidence: Array.isArray(parsed.evidence)
+        ? parsed.evidence.map(String)
+        : [],
       verificationRun: Array.isArray(parsed.verificationRun)
         ? parsed.verificationRun.map(String)
         : [],
-      failureReason:
-        parsed.failureReason != null ? String(parsed.failureReason) : null,
+      failureReason,
       nextRecommendedAction: String(parsed.nextRecommendedAction ?? ""),
     };
   } catch {
@@ -190,15 +194,18 @@ function buildResultContent(
   modifiedFiles: string[],
   status: "Completed" | "Incomplete" | "Failed",
   structured: SubAgentStructuredResult | null,
+  modelTitle: string,
 ): string {
   // Prefer the structured summary; fall back to stripped raw text
-  const summaryText = structured?.summary || stripResultBlock(rawSummary) || rawSummary;
+  const summaryText =
+    structured?.summary || stripResultBlock(rawSummary) || rawSummary;
 
   const lines: string[] = [
     `## Sub-Agent Result: ${description}`,
     "",
     `**Status**: ${status}`,
     `**Iterations**: ${iterations}/${MAX_SUB_AGENT_ITERATIONS}`,
+    `Model Used: ${modelTitle}`,
     "",
     "### Summary",
     summaryText,
@@ -244,17 +251,60 @@ function buildResultContent(
   return lines.join("\n");
 }
 
+function getSubAgentModel(config: any): any | undefined {
+  return (
+    config?.selectedModelByRole?.subagent ?? config?.modelsByRole?.subagent?.[0]
+  );
+}
+
+function getModelTitle(llm: any): string {
+  return llm?.title ?? llm?.model ?? llm?.modelName ?? "unknown";
+}
+
+function findRequestedSubAgentModel(config: any, requestedModel: string) {
+  const models = config?.modelsByRole?.subagent ?? [];
+  const requested = requestedModel.trim();
+  return models.find((model: any) =>
+    [model?.title, model?.model, model?.modelName]
+      .filter(Boolean)
+      .includes(requested),
+  );
+}
+
 export const subAgentImpl: ToolImpl = async (args, extras) => {
   const description = getStringArg(args, "description");
   const prompt = getStringArg(args, "prompt");
+  const requestedModel = getOptionalStringArg(args, "model", true)?.trim();
   // 2.5: Optional tool whitelist
   const allowedTools = Array.isArray(args.allowedTools)
     ? (args.allowedTools as string[])
     : undefined;
 
-  // 2.1: Use dedicated subagent model role if configured; fall back to parent LLM
-  const llm =
-    (extras.config as any)?.selectedModelByRole?.["subagent"] ?? extras.llm;
+  const requestedLlm = requestedModel
+    ? findRequestedSubAgentModel(extras.config, requestedModel)
+    : undefined;
+  if (requestedModel && !requestedLlm) {
+    return [
+      {
+        name: "Sub-Agent Configuration Error",
+        description: "Requested model is not available for sub-agent use",
+        content: `Model "${requestedModel}" is not configured for sub-agent use. Choose one of the listed sub-agent models or omit model to use the default.`,
+      },
+    ];
+  }
+
+  const llm = requestedLlm ?? getSubAgentModel(extras.config) ?? extras.llm;
+  if (!llm) {
+    return [
+      {
+        name: "Sub-Agent Configuration Error",
+        description: "No sub-agent model configured",
+        content:
+          "No sub-agent model or parent chat model configured. Add a model with `roles: [subagent]`, select a sub-agent model, or configure a chat model before dispatching sub-agent tasks.",
+      },
+    ];
+  }
+  const modelTitle = getModelTitle(llm);
 
   // 2.4: Auto-inject workspace dirs so sub-agent knows where files live
   let workspaceContext = "";
@@ -356,6 +406,14 @@ export const subAgentImpl: ToolImpl = async (args, extras) => {
 
         let toolResult: ContextItem[];
         try {
+          const toolAllowed = toolSchemas.some(
+            (schema: any) => schema.function.name === tc.name,
+          );
+          if (!toolAllowed) {
+            throw new Error(
+              `Tool ${tc.name} is not available to this sub-agent`,
+            );
+          }
           toolResult = await callBuiltInTool(tc.name, tc.arguments, extras);
         } catch (e: any) {
           toolResult = [
@@ -435,6 +493,7 @@ export const subAgentImpl: ToolImpl = async (args, extras) => {
           modifiedFiles,
           "Failed",
           structured,
+          modelTitle,
         ),
       },
     ];
@@ -483,6 +542,7 @@ export const subAgentImpl: ToolImpl = async (args, extras) => {
         modifiedFiles,
         status,
         structured,
+        modelTitle,
       ),
     },
   ];

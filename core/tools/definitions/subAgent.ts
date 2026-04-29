@@ -1,6 +1,46 @@
 import { Tool } from "../..";
 import { BUILT_IN_GROUP_NAME, BuiltInToolNames } from "../builtIn";
 
+function getModelDisplayName(model: any): string {
+  return model?.title ?? model?.model ?? model?.modelName ?? "unknown";
+}
+
+function getModelProvider(model: any): string {
+  return (
+    model?.providerName ??
+    model?.underlyingProviderName ??
+    model?.provider ??
+    "unknown"
+  );
+}
+
+export function getSubAgentModelContext(
+  models: any[] = [],
+  defaultModel?: any,
+): string {
+  if (!models.length) {
+    return "Sub-agent models: none configured. If no model is specified, the runtime falls back to the current chat model.";
+  }
+
+  const defaultName = defaultModel
+    ? getModelDisplayName(defaultModel)
+    : undefined;
+  const lines = models.map((model, index) => {
+    const name = getModelDisplayName(model);
+    const marker =
+      name === defaultName || (!defaultName && index === 0) ? " (default)" : "";
+    return `- ${name}${marker} — model: ${model?.model ?? "unknown"}, provider: ${getModelProvider(model)}`;
+  });
+
+  return `Sub-agent models available to the runtime:\n${lines.join("\n")}\nYou may pass the optional model parameter using one of the listed model names. If omitted, the runtime uses selectedModelByRole.subagent, otherwise the first configured sub-agent model.`;
+}
+
+const DELEGATION_RUBRIC = `
+DELEGATION RUBRIC:
+- Prefer sub-agents for independent work that would consume high token volume and has weak dependency on your current context.
+- Prefer sub-agents for multi-route investigation, reading 3+ unrelated files, independent validation, or parallelizable tool calls.
+- do not delegate single-file small edits, tasks with strict sequential dependency, or work the user explicitly asked the main agent to do directly.`;
+
 export const subAgentTool: Tool = {
   type: "function",
   displayTitle: "Sub-Agent",
@@ -26,6 +66,11 @@ export const subAgentTool: Tool = {
           type: "string",
           description:
             "Detailed instructions for the sub-agent. Include all necessary context, file paths, and expected outcomes. The sub-agent cannot ask clarifying questions.",
+        },
+        model: {
+          type: "string",
+          description:
+            "Optional sub-agent model name. Must exactly match one of the sub-agent model names listed in this tool description. If omitted, the runtime uses the configured default.",
         },
         allowedTools: {
           type: "array",
@@ -77,3 +122,24 @@ Examples:`,
   },
   toolCallIcon: "UserGroupIcon",
 };
+
+export function withSubAgentModelContext(
+  tool: Tool,
+  models: any[] = [],
+  defaultModel?: any,
+): Tool {
+  const modelContext = getSubAgentModelContext(models, defaultModel);
+  return {
+    ...tool,
+    function: {
+      ...tool.function,
+      description: `${tool.function.description}\n\n${modelContext}`,
+    },
+    systemMessageDescription: tool.systemMessageDescription
+      ? {
+          ...tool.systemMessageDescription,
+          prefix: `${tool.systemMessageDescription.prefix}\n\n${modelContext}\n${DELEGATION_RUBRIC}`,
+        }
+      : undefined,
+  };
+}

@@ -7,7 +7,13 @@ export type InlineErrorMessageType =
   | "out-of-context"
   | "max-iterations"
   | "auto-compacting"
-  | { type: "budget-exceeded"; elapsedMin: number; iterations: number; todoSummary: string };
+  | {
+      type: "budget-exceeded";
+      elapsedMin: number;
+      iterations: number;
+      maxBudgetIterations: number;
+      todoSummary: string;
+    };
 
 export default function InlineErrorMessage() {
   const dispatch = useAppDispatch();
@@ -80,20 +86,27 @@ export default function InlineErrorMessage() {
       </div>
     );
   }
-  if (inlineErrorMessage && typeof inlineErrorMessage === "object" && inlineErrorMessage.type === "budget-exceeded") {
-    const { elapsedMin, iterations, todoSummary } = inlineErrorMessage;
+  if (
+    inlineErrorMessage &&
+    typeof inlineErrorMessage === "object" &&
+    inlineErrorMessage.type === "budget-exceeded"
+  ) {
+    const { elapsedMin, iterations, maxBudgetIterations, todoSummary } =
+      inlineErrorMessage;
     return (
       <div
-        className={`border-border relative m-2 flex flex-col rounded-md border border-solid bg-transparent p-4 gap-1`}
+        className={`border-border relative m-2 flex flex-col gap-1 rounded-md border border-solid bg-transparent p-4`}
       >
         <p className={`thread-message text-warning text-center font-semibold`}>
           Agent budget exceeded — task paused
         </p>
         <p className={`thread-message text-description text-center text-xs`}>
-          {`Elapsed: ${elapsedMin} min · Iterations: ${iterations}`}
+          {`Elapsed: ${elapsedMin} min · Iterations: ${iterations}/${maxBudgetIterations}`}
         </p>
         {todoSummary && (
-          <p className={`thread-message text-description text-center text-xs whitespace-pre-line`}>
+          <p
+            className={`thread-message text-description whitespace-pre-line text-center text-xs`}
+          >
             {todoSummary}
           </p>
         )}

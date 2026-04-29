@@ -2,7 +2,7 @@ import * as childProcess from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   afterAll,
   afterEach,
@@ -15,11 +15,68 @@ import {
 import { IDE, ToolExtras } from "../..";
 import * as processTerminalStates from "../../util/processTerminalStates";
 import { runTerminalCommandTool } from "../definitions/runTerminalCommand";
+import { disposeAllShells } from "./persistentShell";
 import { runTerminalCommandImpl } from "./runTerminalCommand";
+import {
+  getShellRuntimeInfo,
+  getTerminalShellRuntimeNote,
+} from "./shellRuntime";
 
 // We're using real child processes, so ensure these aren't mocked
 vi.unmock("node:child_process");
 vi.unmock("node:util");
+
+describe("shell runtime contract", () => {
+  it("should describe Windows PowerShell without hard-banning other shells", () => {
+    const info = getShellRuntimeInfo({ platform: "win32", env: {} });
+
+    expect(info.shellType).toBe("powershell");
+    expect(info.shellPath).toBe("powershell.exe");
+    expect(info.commandSeparator).toBe(";");
+    expect(info.syntaxHint).toContain("PowerShell");
+    expect(info.syntaxHint).toContain("$env:");
+    expect(info.syntaxHint).toContain(
+      "explicitly call another available shell",
+    );
+    expect(info.syntaxHint).not.toMatch(/forbid|禁止/i);
+  });
+
+  it("should describe Unix shells from SHELL", () => {
+    const info = getShellRuntimeInfo({
+      platform: "linux",
+      env: { SHELL: "/usr/bin/fish" },
+    });
+
+    expect(info.shellType).toBe("fish");
+    expect(info.shellPath).toBe("/usr/bin/fish");
+    expect(info.commandSeparator).toBe(";");
+    expect(info.syntaxHint).toContain("fish");
+  });
+
+  it("should expose unknown shell fallback details", () => {
+    const info = getShellRuntimeInfo({
+      platform: "linux",
+      env: { SHELL: "/opt/custom/myshell" },
+    });
+
+    expect(info.shellType).toBe("unknown");
+    expect(info.shellPath).toBe("/opt/custom/myshell");
+    expect(info.commandSeparator).toBe(";");
+    expect(info.syntaxHint).toContain("/opt/custom/myshell");
+  });
+
+  it("should inject shell runtime guidance into terminal tool prompts", () => {
+    const note = getTerminalShellRuntimeNote();
+
+    expect(runTerminalCommandTool.function.description).toContain(note);
+    expect(runTerminalCommandTool.systemMessageDescription?.prefix).toContain(
+      note,
+    );
+    expect(runTerminalCommandTool.function.description).not.toContain(
+      "The shell is not stateful",
+    );
+  });
+});
 
 describe("runTerminalCommandImpl", () => {
   // Setup mocks and spies
@@ -51,6 +108,8 @@ describe("runTerminalCommandImpl", () => {
   });
 
   afterEach(async () => {
+    disposeAllShells();
+
     // Clean up any lingering test processes
     if (testPid !== null) {
       try {
@@ -71,9 +130,23 @@ describe("runTerminalCommandImpl", () => {
     }
   });
 
-  afterAll(() => {
+  afterAll(async () => {
     // Clean up the temp directory after tests
-    fs.rmSync(tempDir, { recursive: true, force: true });
+    for (let attempt = 0; attempt < 10; attempt++) {
+      try {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+        return;
+      } catch (e: any) {
+        if (e?.code !== "EBUSY") {
+          throw e;
+        }
+        if (attempt === 9) {
+          console.warn(`Could not remove temp dir after retries: ${tempDir}`);
+          return;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+    }
   });
 
   // Helper function to create a ToolExtras object
@@ -181,20 +254,8 @@ describe("runTerminalCommandImpl", () => {
   });
 
   it("should run commands in background when waitForCompletion is false", async () => {
-    // Create a self-identifying background process that writes its PID
-    // to a file we can access to kill it later
-    const pidFile = path.join(tempDir, "test-pid.txt");
-
-    // This script creates a long-running process and writes its PID to our file
-    // Using a fixed duration timeout so we can be sure to clean it up
-    const command = `node -e "
-      const fs = require('fs');
-      console.log('starting background process with PID: ' + process.pid);
-      fs.writeFileSync('${pidFile}', process.pid.toString());
-      setTimeout(() => { 
-        console.log('background process completed'); 
-      }, 500);
-    "`;
+    // Use a quick command so the test does not hold the temp cwd on Windows.
+    const command = `node -e "console.log('background process completed')"`;
 
     const args = { command, waitForCompletion: false };
     const mockOutputFn = vi.fn();
@@ -223,16 +284,8 @@ describe("runTerminalCommandImpl", () => {
       }
     }
 
-    // Wait a bit to make sure the PID file is written
+    // Wait briefly for the process to complete and onPartialOutput to be called again.
     await new Promise((resolve) => setTimeout(resolve, 100));
-
-    // Read the PID file to get the process ID so we can kill it later
-    if (fs.existsSync(pidFile)) {
-      testPid = Number(fs.readFileSync(pidFile, "utf-8"));
-    }
-
-    // Wait a bit longer for the process to complete and onPartialOutput to be called again
-    await new Promise((resolve) => setTimeout(resolve, 400));
 
     // Check for background process completion message in mockOutputFn calls
     // Note: This is optional and depends on timing, so we don't want to strictly enforce it
@@ -341,8 +394,8 @@ describe("runTerminalCommandImpl", () => {
   });
 
   it("should include status info for background commands in non-streaming mode", async () => {
-    // Use a simple background command
-    const command = `node -e "setTimeout(() => console.log('done'), 300)"`;
+    // Use a quick command so the test does not hold the temp cwd on Windows.
+    const command = `node -e "console.log('done')"`;
     const args = { command, waitForCompletion: false };
     // No streaming in this test (no onPartialOutput)
     const extras = createMockExtras();
@@ -537,8 +590,8 @@ describe("runTerminalCommandImpl", () => {
       });
 
       it("should properly convert file:// URIs to paths", () => {
-        const fileUri = "file:///home/user/workspace";
-        const expectedPath = "/home/user/workspace";
+        const expectedPath = path.join(os.tmpdir(), "workspace");
+        const fileUri = pathToFileURL(expectedPath).href;
 
         // Test that fileURLToPath works correctly with file:// URIs
         expect(fileURLToPath(fileUri)).toBe(expectedPath);

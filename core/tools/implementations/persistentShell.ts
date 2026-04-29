@@ -4,13 +4,26 @@
  */
 import * as childProcess from "child_process";
 import * as os from "os";
+import { getShellRuntimeInfo } from "./shellRuntime";
 
 const MARKER_PREFIX = "__CONTINUE_CMD_";
-const TIMEOUT_MS = 120_000;
+const HARD_TIMEOUT_MS = 300_000;
+const IDLE_TIMEOUT_MS = 120_000;
 
-interface CommandResult {
+export type TerminalCompletionReason =
+  | "marker"
+  | "child-exit"
+  | "child-error"
+  | "timeout"
+  | "hard-timeout"
+  | "idle-timeout"
+  | "idle-return"
+  | "backgrounded";
+
+export interface CommandResult {
   output: string;
   exitCode: number;
+  completionReason: TerminalCompletionReason;
 }
 
 type OnOutputCallback = (chunk: string) => void;
@@ -23,6 +36,7 @@ export class PersistentShell {
   private _cwd: string;
   private _isAlive = false;
   private onOutputCallback: OnOutputCallback | null = null;
+  private refreshIdleTimeout: (() => void) | null = null;
 
   constructor(cwd?: string) {
     this._cwd = cwd || os.homedir();
@@ -42,8 +56,9 @@ export class PersistentShell {
   start(): void {
     if (this._isAlive) return;
 
-    const isWindows = os.platform() === "win32";
-    const shell = isWindows ? "powershell.exe" : process.env.SHELL || "/bin/sh";
+    const runtimeInfo = getShellRuntimeInfo();
+    const isWindows = runtimeInfo.platform === "win32";
+    const shell = runtimeInfo.shellPath;
     const args = isWindows ? ["-NoLogo", "-NoProfile", "-NonInteractive"] : [];
 
     this.proc = childProcess.spawn(shell, args, {
@@ -71,13 +86,23 @@ export class PersistentShell {
     this.proc.on("exit", () => {
       this._isAlive = false;
       if (this.pendingResolve) {
-        this.pendingResolve({ output: this.buffer, exitCode: -1 });
-        this.pendingResolve = null;
+        this.pendingResolve({
+          output: this.buffer,
+          exitCode: -1,
+          completionReason: "child-exit",
+        });
       }
     });
 
-    this.proc.on("error", () => {
+    this.proc.on("error", (error) => {
       this._isAlive = false;
+      if (this.pendingResolve) {
+        this.pendingResolve({
+          output: `${this.buffer}\n[Shell error: ${error.message}]`.trim(),
+          exitCode: -1,
+          completionReason: "child-error",
+        });
+      }
     });
   }
 
@@ -102,7 +127,6 @@ export class PersistentShell {
       const marker = `${MARKER_PREFIX}${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
       this.currentMarker = marker;
       this.buffer = "";
-      this.pendingResolve = resolve;
       this.onOutputCallback = onOutput || null;
 
       const isWindows = os.platform() === "win32";
@@ -115,24 +139,55 @@ export class PersistentShell {
         wrappedCommand = `${command}\necho "${marker}_EXIT_$?"\n`;
       }
 
-      const timeout = setTimeout(() => {
+      let hardTimeout: ReturnType<typeof setTimeout> | undefined;
+      let idleTimeout: ReturnType<typeof setTimeout> | undefined;
+
+      const finish = (result: CommandResult) => {
+        if (hardTimeout) {
+          clearTimeout(hardTimeout);
+        }
+        if (idleTimeout) {
+          clearTimeout(idleTimeout);
+        }
+        this.pendingResolve = null;
+        this.onOutputCallback = null;
+        this.refreshIdleTimeout = null;
+        resolve(result);
+      };
+
+      const finishTimeout = (
+        completionReason: "hard-timeout" | "idle-timeout",
+        message: string,
+      ) => {
         if (this.pendingResolve) {
           this.pendingResolve({
-            output: this.buffer + "\n[Command timed out after 120s]",
+            output: this.buffer + message,
             exitCode: -1,
+            completionReason,
           });
-          this.pendingResolve = null;
-          this.onOutputCallback = null;
+          this.dispose();
         }
-      }, TIMEOUT_MS);
-
-      // Override resolve to clear timeout
-      const originalResolve = this.pendingResolve;
-      this.pendingResolve = (result: CommandResult) => {
-        clearTimeout(timeout);
-        this.onOutputCallback = null;
-        originalResolve!(result);
       };
+
+      const resetIdleTimeout = () => {
+        if (idleTimeout) {
+          clearTimeout(idleTimeout);
+        }
+        idleTimeout = setTimeout(() => {
+          finishTimeout(
+            "idle-timeout",
+            "\n[No output for 120s; command killed]",
+          );
+        }, IDLE_TIMEOUT_MS);
+      };
+
+      this.pendingResolve = finish;
+      this.refreshIdleTimeout = resetIdleTimeout;
+
+      hardTimeout = setTimeout(() => {
+        finishTimeout("hard-timeout", "\n[Command timed out after 300s]");
+      }, HARD_TIMEOUT_MS);
+      resetIdleTimeout();
 
       this.proc!.stdin!.write(wrappedCommand);
     });
@@ -143,9 +198,22 @@ export class PersistentShell {
    */
   dispose(): void {
     if (this.proc) {
+      if (typeof this.proc.stdin?.destroy === "function") {
+        this.proc.stdin.destroy();
+      }
+      if (typeof this.proc.stdout?.destroy === "function") {
+        this.proc.stdout.destroy();
+      }
+      if (typeof this.proc.stderr?.destroy === "function") {
+        this.proc.stderr.destroy();
+      }
       this.proc.kill();
+      this.proc.unref?.();
       this.proc = null;
     }
+    this.pendingResolve = null;
+    this.onOutputCallback = null;
+    this.refreshIdleTimeout = null;
     this._isAlive = false;
   }
 
@@ -153,6 +221,7 @@ export class PersistentShell {
     if (!this.pendingResolve) return;
 
     this.buffer += data;
+    this.refreshIdleTimeout?.();
 
     // Stream partial output (excluding marker lines)
     if (this.onOutputCallback) {
@@ -183,8 +252,11 @@ export class PersistentShell {
         .join("\n")
         .trim();
 
-      this.pendingResolve({ output: cleanOutput, exitCode });
-      this.pendingResolve = null;
+      this.pendingResolve({
+        output: cleanOutput,
+        exitCode,
+        completionReason: "marker",
+      });
     }
   }
 }

@@ -16,6 +16,9 @@ export type ToolPolicies = { [toolName: string]: ToolPolicy };
 export type RulePolicies = { [ruleName: string]: RulePolicy };
 export type ToolGroupPolicies = { [toolGroupName: string]: ToolGroupPolicy };
 export type ReasoningSettings = { [modelTitle: string]: boolean };
+export type AgentSettings = { maxBudgetIterations: number };
+
+export const DEFAULT_AGENT_MAX_BUDGET_ITERATIONS = 200;
 
 type UIState = {
   showDialog: boolean;
@@ -28,6 +31,7 @@ type UIState = {
   toolGroupSettings: ToolGroupPolicies;
   ruleSettings: RulePolicies;
   reasoningSettings: ReasoningSettings;
+  agent: AgentSettings;
   ttsActive: boolean;
 };
 
@@ -49,6 +53,9 @@ export const DEFAULT_UI_SLICE: UIState = {
   },
   ruleSettings: {},
   reasoningSettings: {},
+  agent: {
+    maxBudgetIterations: DEFAULT_AGENT_MAX_BUDGET_ITERATIONS,
+  },
 };
 
 export const uiSlice = createSlice({
@@ -149,6 +156,12 @@ export const uiSlice = createSlice({
       state.reasoningSettings[action.payload.modelTitle] =
         action.payload.enabled;
     },
+    setAgentMaxBudgetIterations: (state, action: PayloadAction<number>) => {
+      const value = Number(action.payload);
+      state.agent.maxBudgetIterations = Number.isFinite(value)
+        ? Math.max(1, Math.floor(value))
+        : DEFAULT_AGENT_MAX_BUDGET_ITERATIONS;
+    },
   },
 });
 
@@ -166,6 +179,7 @@ export const {
   toggleRuleSetting,
   setTTSActive,
   setReasoningSetting,
+  setAgentMaxBudgetIterations,
 } = uiSlice.actions;
 
 export default uiSlice.reducer;

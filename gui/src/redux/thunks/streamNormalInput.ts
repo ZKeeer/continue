@@ -33,6 +33,11 @@ import {
   selectPendingToolCalls,
 } from "../selectors/selectToolCalls";
 import { getBaseSystemMessage } from "../util/getBaseSystemMessage";
+import {
+  DEFAULT_AGENT_MAX_BUDGET_DURATION_MS,
+  buildAgentBudgetStop,
+  getAgentMaxBudgetIterations,
+} from "./agentBudget";
 import { callToolById } from "./callToolById";
 import { evaluateToolPolicies } from "./evaluateToolPolicies";
 import { preprocessToolCalls } from "./preprocessToolCallArgs";
@@ -41,13 +46,6 @@ import { streamResponseAfterToolCall } from "./streamResponseAfterToolCall";
 
 // Auto-compact threshold: trigger compaction when context usage exceeds this percentage
 const AUTO_COMPACT_THRESHOLD = 0.85;
-
-// Maximum agent loop iterations to prevent infinite tool call loops
-const MAX_AGENT_ITERATIONS = 50;
-
-// S-2a: Budget limits — hard stop with graceful progress report
-const BUDGET_WALL_CLOCK_MS = 15 * 60 * 1000; // 15 minutes per agent run
-const BUDGET_ITERATIONS = 35; // LLM rounds before graceful stop
 
 function summarizeToolCallStateForDebug(toolCallState: any) {
   const args = toolCallState?.toolCall?.function?.arguments;
@@ -140,78 +138,43 @@ export const streamNormalInput = createAsyncThunk<
     { legacySlashCommandData, depth = 0 },
     { dispatch, extra, getState },
   ): Promise<void> => {
-    if (depth > MAX_AGENT_ITERATIONS) {
-      const message = `Agent reached maximum iteration limit (${MAX_AGENT_ITERATIONS}). Stopping to prevent infinite loop.`;
-      console.warn(`[AgentLoop] ${message}`);
-      dispatch(setInlineErrorMessage("max-iterations"));
-      dispatch(setInactive());
-      return;
-    }
-
-    // S-2a: Budget tracking — record start time on first call; check wall-clock and iteration budgets on subsequent calls
+    // S-2a: Budget tracking — record start time on first call; check the single configurable iteration budget on subsequent calls
     if (depth === 0) {
       dispatch(setAgentRunStartTime(Date.now()));
     } else {
       const startTime = getState().session.agentRunStartTime;
-      const elapsedMs = startTime ? Date.now() - startTime : 0;
-      const elapsedMin = Math.round(elapsedMs / 60_000);
+      const nowMs = Date.now();
+      const maxBudgetIterations = getAgentMaxBudgetIterations(
+        getState().ui.agent,
+      );
+      const elapsedMs = startTime !== undefined ? nowMs - startTime : 0;
+      const exceededClock = elapsedMs >= DEFAULT_AGENT_MAX_BUDGET_DURATION_MS;
 
-      const overWallClock = elapsedMs > BUDGET_WALL_CLOCK_MS;
-      const overIterations = depth >= BUDGET_ITERATIONS;
-
-      if (overWallClock || overIterations) {
-        // Build a human-readable todo summary from current state
-        const todoItems = getState().session.todoListItems ?? [];
-        const done = todoItems.filter((t) => t.status === "completed").length;
-        const inProgress = todoItems.filter(
-          (t) => t.status === "in-progress",
-        ).length;
-        const remaining = todoItems.filter(
-          (t) => t.status === "not-started",
-        ).length;
-        const todoSummary =
-          todoItems.length > 0
-            ? `Plan progress: ${done}/${todoItems.length} done${inProgress > 0 ? `, ${inProgress} in-progress` : ""}, ${remaining} remaining`
-            : "No task plan was created for this run.";
-
-        const stopReason = overWallClock
-          ? `Wall-clock budget exceeded (${elapsedMin} min / ${Math.round(BUDGET_WALL_CLOCK_MS / 60_000)} min limit)`
-          : `Iteration budget exceeded (${depth} iterations / ${BUDGET_ITERATIONS} limit)`;
+      if (depth >= maxBudgetIterations || exceededClock) {
+        const elapsedLimitMin = Math.round(
+          DEFAULT_AGENT_MAX_BUDGET_DURATION_MS / 60_000,
+        );
+        const budgetStop = buildAgentBudgetStop({
+          depth,
+          maxBudgetIterations,
+          agentRunStartTime: startTime,
+          nowMs,
+          todoItems: getState().session.todoListItems,
+          stopReason: exceededClock
+            ? `Wall-clock budget exceeded (${Math.round(elapsedMs / 60_000)}min / ${elapsedLimitMin}min limit)`
+            : undefined,
+        });
 
         console.warn(
-          `[AgentBudget] Stopping: elapsed=${elapsedMin}min iterations=${depth} overWallClock=${overWallClock} overIterations=${overIterations}`,
+          `[AgentBudget] Stopping: elapsed=${budgetStop.elapsedMin}min iterations=${depth} maxBudgetIterations=${maxBudgetIterations}`,
         );
 
         // S-2a: Write a structured stop record into the conversation history
         // so it is visible in the transcript, result cards, and any future replay.
-        const budgetStopMessage = {
-          role: "assistant" as const,
-          content:
-            `**⚠️ Agent Budget Stop**\n\n` +
-            `**Reason**: ${stopReason}\n\n` +
-            `**${todoSummary}**\n\n` +
-            (todoItems.length > 0
-              ? todoItems
-                  .map(
-                    (t) =>
-                      `- [${t.status === "completed" ? "x" : t.status === "in-progress" ? "~" : " "}] ${t.title}`,
-                  )
-                  .join("\n") + "\n\n"
-              : "") +
-            `**Remaining Risk**: Work may be incomplete. Review the last tool call outputs before continuing.\n\n` +
-            `**Next Recommended Action**: Send a follow-up message to resume from the current state, or start a new session with a more focused scope.`,
-        };
-        dispatch(streamUpdate([budgetStopMessage]));
+        dispatch(streamUpdate([budgetStop.budgetStopMessage]));
 
         // Also show a UI banner for immediate visibility
-        dispatch(
-          setInlineErrorMessage({
-            type: "budget-exceeded",
-            elapsedMin,
-            iterations: depth,
-            todoSummary,
-          }),
-        );
+        dispatch(setInlineErrorMessage(budgetStop.inlineErrorMessage));
         dispatch(setInactive());
         return;
       }
@@ -597,6 +560,7 @@ export const streamNormalInput = createAsyncThunk<
                   toolCallId: toolCallState.toolCallId,
                   isAutoApproved: true,
                   depth: depth + 1,
+                  availableTools: activeTools,
                 }),
               ),
             );
@@ -613,6 +577,7 @@ export const streamNormalInput = createAsyncThunk<
         return;
       }
       if (generatedCalls4.length > 0) {
+        const deferContinuation = generatedCalls4.length > 1;
         await Promise.all(
           generatedCalls4.map(async ({ toolCallId }) => {
             unwrapResult(
@@ -621,11 +586,24 @@ export const streamNormalInput = createAsyncThunk<
                   toolCallId,
                   isAutoApproved: true,
                   depth: depth + 1,
+                  deferContinuation,
+                  availableTools: activeTools,
                 }),
               ),
             );
           }),
         );
+        if (deferContinuation) {
+          unwrapResult(
+            await dispatch(
+              streamResponseAfterToolCall({
+                toolCallId:
+                  generatedCalls4[generatedCalls4.length - 1].toolCallId,
+                depth: depth + 1,
+              }),
+            ),
+          );
+        }
       } else {
         for (const { toolCallId } of originalToolCalls) {
           unwrapResult(

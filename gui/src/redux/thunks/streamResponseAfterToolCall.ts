@@ -53,17 +53,7 @@ export const streamResponseAfterToolCall = createAsyncThunk<
           return; // in cases where edit tool is cancelled mid apply, this will be triggered
         }
 
-        const toolOutput = toolCallState.output ?? [];
-
         dispatch(resetNextCodeBlockToApplyIndex());
-
-        // Create and dispatch the tool message
-        const newMessage: ChatMessage = {
-          role: "tool",
-          content: renderContextItems(toolOutput),
-          toolCallId,
-        };
-        dispatch(streamUpdate([newMessage]));
 
         // Check if we should continue streaming based on tool call completion
         const history = getState().session.history;
@@ -72,6 +62,38 @@ export const streamResponseAfterToolCall = createAsyncThunk<
             item.message.role === "assistant" &&
             item.toolCallStates?.some((tc) => tc.toolCallId === toolCallId),
         );
+
+        const alreadyStreamedToolCallIds = new Set(
+          history
+            .filter((item) => item.message.role === "tool")
+            .map((item) =>
+              item.message.role === "tool"
+                ? item.message.toolCallId
+                : undefined,
+            )
+            .filter(Boolean),
+        );
+
+        const completedToolCalls = assistantMessage?.toolCallStates?.filter(
+          (tc) =>
+            tc.status === "done" ||
+            tc.status === "errored" ||
+            (state.config.config.ui?.continueAfterToolRejection &&
+              tc.status === "canceled"),
+        );
+
+        const toolStatesToStream = (
+          completedToolCalls?.length ? completedToolCalls : [toolCallState]
+        ).filter((tc) => !alreadyStreamedToolCallIds.has(tc.toolCallId));
+
+        if (toolStatesToStream.length > 0) {
+          const newMessages: ChatMessage[] = toolStatesToStream.map((tc) => ({
+            role: "tool",
+            content: renderContextItems(tc.output ?? []),
+            toolCallId: tc.toolCallId,
+          }));
+          dispatch(streamUpdate(newMessages));
+        }
 
         if (
           assistantMessage &&

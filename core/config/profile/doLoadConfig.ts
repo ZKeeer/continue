@@ -30,7 +30,9 @@ import { TeamAnalytics } from "../../control-plane/TeamAnalytics.js";
 import ContinueProxy from "../../llm/llms/stubs/ContinueProxy";
 import { initSlashCommand } from "../../promptFiles/initPrompt";
 import { getConfigDependentToolDefinitions } from "../../tools";
+import { BuiltInToolNames } from "../../tools/builtIn";
 import { encodeMCPToolUri } from "../../tools/callTool";
+import { withSubAgentModelContext } from "../../tools/definitions/subAgent";
 import { getMCPToolName } from "../../tools/mcpToolName";
 import { GlobalContext } from "../../util/GlobalContext";
 import { getConfigJsonPath, getConfigYamlPath } from "../../util/paths";
@@ -325,6 +327,15 @@ export default async function doLoadConfig(options: {
       modelName: newConfig.selectedModelByRole.chat?.model,
       ide,
     })),
+  );
+
+  const subAgentModels = newConfig.modelsByRole.subagent;
+  const defaultSubAgentModel =
+    newConfig.selectedModelByRole.subagent ?? subAgentModels[0];
+  newConfig.tools = newConfig.tools.map((tool) =>
+    tool.function.name === BuiltInToolNames.SubAgent
+      ? withSubAgentModelContext(tool, subAgentModels, defaultSubAgentModel)
+      : tool,
   );
 
   // Detect duplicate tool names

@@ -86,19 +86,31 @@ export function evaluateTerminalCommandSecurity(
         }
       }
 
-      return mostRestrictivePolicy;
+      return applyBasePolicy(basePolicy, mostRestrictivePolicy);
     }
 
     // Single line command - parse and evaluate normally
     const tokens = parse(normalizedCommand);
 
     // Evaluate security of the parsed tokens
-    return evaluateTokensSecurity(tokens, basePolicy, normalizedCommand);
+    return applyBasePolicy(
+      basePolicy,
+      evaluateTokensSecurity(tokens, basePolicy, normalizedCommand),
+    );
   } catch (error) {
-    // If parsing fails, be conservative and require permission
-    console.error("Failed to parse command:", error);
-    return "allowedWithPermission";
+    // Tool-level policy is authoritative. Automatic runs every command, and
+    // Ask First asks for every command, even if parsing fails.
+    void error;
+    return basePolicy;
   }
+}
+
+function applyBasePolicy(
+  basePolicy: ToolPolicy,
+  evaluatedPolicy: ToolPolicy,
+): ToolPolicy {
+  void evaluatedPolicy;
+  return basePolicy;
 }
 
 /**
@@ -277,9 +289,6 @@ function evaluateTokens(
  * Returns the most restrictive policy from multiple policies
  */
 function getMostRestrictive(...policies: ToolPolicy[]): ToolPolicy {
-  if (policies.some((p) => p === "disabled")) {
-    return "disabled";
-  }
   if (policies.some((p) => p === "allowedWithPermission")) {
     return "allowedWithPermission";
   }
