@@ -23,9 +23,7 @@ class MockLLM {
     ];
 
     // Yield each line separately (more realistic streaming)
-    for (const line of lines) {
-      yield line;
-    }
+    yield lines.join("\n");
   }
 }
 
@@ -45,9 +43,7 @@ class MockJavaScriptLLM {
       "}",
     ];
 
-    for (const line of lines) {
-      yield line;
-    }
+    yield lines.join("\n");
   }
 }
 
@@ -68,6 +64,27 @@ class MockPythonLLM {
     for (const line of lines) {
       yield line;
     }
+  }
+}
+
+class MockPythonWithThinkingLLM {
+  model = "claude-3-5-sonnet-20241022";
+  providerName = "anthropic";
+
+  async *streamChat(messages: any[], signal?: AbortSignal) {
+    yield {
+      role: "thinking",
+      content: [
+        "The user wants me to apply the suggested edit to the original code.",
+        "Key changes to apply:",
+        "1. Update the function implementation",
+        "Let me construct the complete file now.",
+      ].join("\n"),
+    };
+    yield {
+      role: "assistant",
+      content: ["def calculate_sum(a, b):", "    return a + b"].join("\n"),
+    };
   }
 }
 
@@ -269,6 +286,32 @@ def calculate_product(a, b):
     const allContent = diffLines.map((d) => d.line).join("\n");
     expect(allContent).toContain("calculate_sum");
     expect(allContent).toContain("calculate_product");
+  });
+
+  test("should ignore thinking chunks from the apply model", async () => {
+    const oldCode = "def calculate_sum(a, b):\n    return a - b";
+    const newCode = "def calculate_sum(a, b):\n    return a + b";
+    const filename = "calculator.py";
+    const llm = new MockPythonWithThinkingLLM() as any;
+    const abortController = new AbortController();
+
+    const diffLines = [];
+    for await (const diffLine of streamLazyApply(
+      oldCode,
+      filename,
+      newCode,
+      llm,
+      abortController,
+    )) {
+      diffLines.push(diffLine);
+    }
+
+    const allContent = diffLines.map((d) => d.line).join("\n");
+    expect(allContent).toContain("def calculate_sum(a, b):");
+    expect(allContent).toContain("return a + b");
+    expect(allContent).not.toContain("The user wants me");
+    expect(allContent).not.toContain("Key changes to apply");
+    expect(allContent).not.toContain("Let me construct");
   });
 
   test("should handle UNCHANGED_CODE markers in responses", async () => {

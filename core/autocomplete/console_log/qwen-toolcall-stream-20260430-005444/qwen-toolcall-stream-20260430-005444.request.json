@@ -1,0 +1,43 @@
+{
+  "model": "Qwen3.5-397B-A17B-GPTQ-Int4",
+  "stream": true,
+  "stream_options": {
+    "include_usage": true
+  },
+  "temperature": 0.2,
+  "max_tokens": 8192,
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are a coding agent. Think carefully before using tools. When evidence from code is needed, use the grep_search tool. Do not provide the final answer before calling grep_search."
+    },
+    {
+      "role": "user",
+      "content": "Find where ApplyState status done is handled. First reason about why this requires a code search, then call grep_search with query: ApplyState.status === \"done\""
+    }
+  ],
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "grep_search",
+        "description": "Search the workspace for text or regex matches. Use this when you need evidence from source code.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "query": {
+              "type": "string",
+              "description": "The exact text or regex pattern to search for."
+            },
+            "includePattern": {
+              "type": "string",
+              "description": "Optional glob pattern for files to include."
+            }
+          },
+          "required": ["query"]
+        }
+      }
+    }
+  ],
+  "tool_choice": { "type": "function", "function": { "name": "grep_search" } }
+}

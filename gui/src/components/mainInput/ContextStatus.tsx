@@ -23,13 +23,13 @@ const ContextStatus = () => {
   const previousHistoryLength = useRef<number | null>(null);
   const previousSelectedChatModel = useRef<string | null>(null);
   const history = useAppSelector((state) => state.session.history);
-  const percent = Math.round((contextPercentage ?? 0) * 100);
+  const compactConversation = useCompactConversation();
+  const percent = contextPercentage !== undefined ? Math.round(contextPercentage * 100) : undefined;
   const isPruned = useAppSelector((state) => state.session.isPruned);
-  const usedTokens = Math.round((contextPercentage ?? 0) * contextLength);
+  const usedTokens = contextPercentage !== undefined ? Math.round(contextPercentage * contextLength) : undefined;
 
   const isDifferentModelAndSameHistory = useMemo(() => {
     if (!selectedChatModel) return false;
-    // only reset if history changes
     if (previousHistoryLength.current !== history.length) {
       previousHistoryLength.current = history.length;
       previousSelectedChatModel.current = selectedChatModel;
@@ -38,29 +38,28 @@ const ContextStatus = () => {
     return previousSelectedChatModel.current !== selectedChatModel;
   }, [history.length, selectedChatModel]);
 
-  const compactConversation = useCompactConversation();
   if (!contextLength) {
     return null;
   }
 
-  // if user changed to a different model, we shouldn't show the context status until the user sends a new message
   if (isDifferentModelAndSameHistory) {
     return null;
   }
 
-  // Tiered color: 60-75% normal, 75-85% warning, 85%+ or pruned = error
+  // Tiered color: when undefined (not yet calculated), show muted color
   const barColorClass =
-    isPruned || percent >= 85
-      ? "bg-error"
-      : percent >= 75
-        ? "bg-warning"
-        : "bg-description";
+    percent === undefined
+      ? "bg-description-muted"
+      : isPruned || percent >= 85
+        ? "bg-error"
+        : percent >= 75
+          ? "bg-warning"
+          : "bg-description";
 
   return (
     <div>
       <ToolTip
         closeEvents={{
-          // blur: false,
           mouseleave: true,
           click: true,
           mouseup: false,
@@ -69,14 +68,16 @@ const ContextStatus = () => {
         content={
           <div className="flex flex-col gap-0 text-left text-xs">
             <span className="inline-block">
-              {`${formatTokenCount(usedTokens)} / ${formatTokenCount(contextLength)} tokens (${percent}%)`}
+              {percent !== undefined
+                ? `${formatTokenCount(usedTokens!)} / ${formatTokenCount(contextLength)} tokens (${percent}%)`
+                : `-- / ${formatTokenCount(contextLength)} tokens`}
             </span>
-            {percent >= 75 && percent < 85 && !isPruned && (
+            {percent !== undefined && percent >= 75 && percent < 85 && !isPruned && (
               <span className="text-warning inline-block">
                 {`Context window getting full. Consider compacting or starting a new session.`}
               </span>
             )}
-            {percent >= 85 && !isPruned && (
+            {percent !== undefined && percent >= 85 && !isPruned && (
               <span className="text-error inline-block">
                 {`Context nearly full. Auto-compaction will trigger soon.`}
               </span>
@@ -91,7 +92,7 @@ const ContextStatus = () => {
                 <div>
                   <span
                     className="hover:text-link inline-block cursor-pointer underline"
-                    onClick={() => compactConversation(history.length - 1)}
+                    onClick={() => compactConversation(-1)}
                   >
                     Compact conversation
                   </span>
@@ -118,19 +119,23 @@ const ContextStatus = () => {
         <div className="flex items-center gap-1">
           <span
             className={`text-[10px] leading-none ${
-              isPruned || percent >= 85
-                ? "text-error"
-                : percent >= 75
-                  ? "text-warning"
-                  : "text-description"
+              percent === undefined
+                ? "text-description-muted"
+                : isPruned || percent >= 85
+                  ? "text-error"
+                  : percent >= 75
+                    ? "text-warning"
+                    : "text-description"
             }`}
           >
-            {formatTokenCount(usedTokens)}/{formatTokenCount(contextLength)}
+            {percent !== undefined
+              ? `${formatTokenCount(usedTokens!)}/${formatTokenCount(contextLength)}`
+              : `--/${formatTokenCount(contextLength)}`}
           </span>
           <div className="border-command-border relative h-[14px] w-[7px] rounded-[1px] border-[0.5px] border-solid md:h-[10px] md:w-[5px]">
             <div
               className={`transition-height absolute bottom-0 left-0 w-full duration-300 ease-in-out ${barColorClass}`}
-              style={{ height: `${percent}%` }}
+              style={{ height: `${percent ?? 0}%` }}
             />
           </div>
         </div>

@@ -5,7 +5,8 @@ import {
 } from "../../autocomplete/filtering/streamTransforms/lineStream.js";
 import { streamDiff } from "../../diff/streamDiff.js";
 import { LineStream, streamLines } from "../../diff/util.js";
-import { DiffLine, ILLM } from "../../index.js";
+import { ChatMessage, DiffLine, ILLM } from "../../index.js";
+import { renderChatMessage } from "../../util/messageContent.js";
 import { stopAtLinesWithMarkdownSupport } from "../../utils/streamMarkdownUtils.js";
 
 import { lazyApplyPromptForModel, UNCHANGED_CODE } from "./prompts.js";
@@ -24,7 +25,9 @@ export async function* streamLazyApply(
   }
 
   const promptMessages = promptFactory(oldCode, filename, newCode);
-  const lazyCompletion = llm.streamChat(promptMessages, abortController.signal);
+  const lazyCompletion = streamAssistantContentOnly(
+    llm.streamChat(promptMessages, abortController.signal),
+  );
 
   // Do find and replace over the lazy edit response
   async function* replacementFunction(
@@ -66,6 +69,18 @@ export async function* streamLazyApply(
   diffLines = filterLeadingAndTrailingNewLineInsertion(diffLines);
   for await (const diffLine of diffLines) {
     yield diffLine;
+  }
+}
+
+async function* streamAssistantContentOnly(
+  stream: AsyncGenerator<string | ChatMessage>,
+): AsyncGenerator<string> {
+  for await (const update of stream) {
+    if (typeof update === "string") {
+      yield update;
+    } else if (update.role === "assistant") {
+      yield renderChatMessage(update);
+    }
   }
 }
 

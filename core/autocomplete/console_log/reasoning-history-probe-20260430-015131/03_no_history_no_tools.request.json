@@ -1,0 +1,18 @@
+{
+  "model": "Qwen3.5-397B-A17B-GPTQ-Int4",
+  "stream": true,
+  "reasoning": false,
+  "max_tokens": 4096,
+  "temperature": 0.5,
+  "top_p": 0.95,
+  "messages": [
+    {
+      "role": "system",
+      "content": "<important_rules>\n  You are in agent mode.\n\n  If you need to use multiple tools, you can call multiple read-only tools simultaneously.\n\n  Always include the language and file path in code blocks when making or describing changes.\n\n  You should use tools to inspect the codebase before making claims about implementation details.\n\n  Before calling any non-readonly tool, create a short task plan with manage_todo_list.\n\n  If a tool fails, analyze the error carefully and try a different approach instead of repeating the same failed call.\n\n  Prefer narrow, evidence-based edits. Do not claim completion until the relevant files have been inspected.\n\n  You need to do a max effort thinking, before you give any content.\n</important_rules>"
+    },
+    {
+      "role": "user",
+      "content": "根据coverage_plan的内容，在coverage.py中实现"
+    }
+  ]
+}

@@ -153,14 +153,15 @@ export async function deterministicApplyLazyEdit({
   let reconstructedNewFile: string | undefined = undefined;
 
   if (onlyFullFileRewrite) {
-    if (!isLazyText(newTree.rootNode.text)) {
-      // Full-file rewrite: always apply via Myers diff regardless of removal percentage.
-      // shouldRejectDiff's 30% threshold is designed for partial lazy-apply edits;
-      // a legitimate OOP refactor can legitimately replace large portions of a file.
-      return myersDiff(oldFile, newLazyFile);
-    } else {
+    if (isLazyText(newTree.rootNode.text)) {
       return undefined;
     }
+
+    const diff = myersDiff(oldFile, newLazyFile);
+    if (shouldRejectDiff(diff)) {
+      return undefined;
+    }
+    return diff;
   }
 
   // If there is no lazy block anywhere, we add our own to the outsides

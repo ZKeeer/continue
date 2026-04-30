@@ -189,6 +189,35 @@ export class ApplyManager {
     return { prefix, suffix, rangeContent };
   }
 
+  /**
+   * Computes a focused range for applying edits when no text is selected.
+   * For small files, uses the full file. For large files, uses a window
+   * around the cursor position to avoid passing the entire file to the LLM.
+   */
+  private computeApplyRange(editor: vscode.TextEditor): vscode.Range {
+    const totalLines = editor.document.lineCount;
+    const cursorLine = editor.selection.active.line;
+    const WINDOW_LINES = 40;
+
+    if (totalLines <= WINDOW_LINES * 2) {
+      return new vscode.Range(
+        0,
+        0,
+        totalLines - 1,
+        editor.document.lineAt(totalLines - 1).text.length,
+      );
+    }
+
+    const startLine = Math.max(0, cursorLine - WINDOW_LINES);
+    const endLine = Math.min(totalLines - 1, cursorLine + WINDOW_LINES);
+    return new vscode.Range(
+      startLine,
+      0,
+      endLine,
+      Number.MAX_SAFE_INTEGER,
+    );
+  }
+
   private async handleNonInstantDiff(
     editor: vscode.TextEditor,
     text: string,
@@ -212,8 +241,29 @@ export class ApplyManager {
       editor.document.lineAt(editor.document.lineCount - 1).text.length,
     );
     const rangeToApplyTo = editor.selection.isEmpty
-      ? fullEditorRange
+      ? this.computeApplyRange(editor)
       : editor.selection;
+
+    if (verticalDiffManager.getHandlerForFile(editor.document.uri.toString())) {
+      const finalContent = await this.generateAppliedContent(
+        editor,
+        prompt,
+        llm,
+        rangeToApplyTo,
+        text,
+      );
+
+      if (finalContent) {
+        await verticalDiffManager.instantApplyDiff(
+          editor.document.getText(),
+          finalContent,
+          streamId,
+          toolCallId,
+        );
+      }
+
+      return;
+    }
 
     if (streaming) {
       try {

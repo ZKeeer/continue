@@ -1,0 +1,42 @@
+data: {"id":"9db0f782265b491eadb1fa72f165f05f","object":"chat.completion.chunk","created":1777485187,"model":"Qwen3.5-397B-A17B-GPTQ-Int4","choices":[{"index":0,"delta":{"role":"assistant","content":"","reasoning_content":null,"tool_calls":null},"logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+
+data: {"id":"9db0f782265b491eadb1fa72f165f05f","object":"chat.completion.chunk","created":1777485187,"model":"Qwen3.5-397B-A17B-GPTQ-Int4","choices":[{"index":0,"delta":{"role":null,"content":null,"reasoning_content":"I","tool_calls":null},"logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+
+data: {"id":"9db0f782265b491eadb1fa72f165f05f","object":"chat.completion.chunk","created":1777485187,"model":"Qwen3.5-397B-A17B-GPTQ-Int4","choices":[{"index":0,"delta":{"role":null,"content":null,"reasoning_content":" need to create a","tool_calls":null},"logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+
+data: {"id":"9db0f782265b491eadb1fa72f165f05f","object":"chat.completion.chunk","created":1777485187,"model":"Qwen3.5-397B-A17B-GPTQ-Int4","choices":[{"index":0,"delta":{"role":null,"content":null,"reasoning_content":" task plan first before","tool_calls":null},"logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+
+data: {"id":"9db0f782265b491eadb1fa72f165f05f","object":"chat.completion.chunk","created":1777485188,"model":"Qwen3.5-397B-A17B-GPTQ-Int4","choices":[{"index":0,"delta":{"role":null,"content":null,"reasoning_content":" I","tool_calls":null},"logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+
+data: {"id":"9db0f782265b491eadb1fa72f165f05f","object":"chat.completion.chunk","created":1777485188,"model":"Qwen3.5-397B-A17B-GPTQ-Int4","choices":[{"index":0,"delta":{"role":null,"content":null,"reasoning_content":" can read the","tool_calls":null},"logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+
+data: {"id":"9db0f782265b491eadb1fa72f165f05f","object":"chat.completion.chunk","created":1777485188,"model":"Qwen3.5-397B-A17B-GPTQ-Int4","choices":[{"index":0,"delta":{"role":null,"content":null,"reasoning_content":" files. Let","tool_calls":null},"logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+
+data: {"id":"9db0f782265b491eadb1fa72f165f05f","object":"chat.completion.chunk","created":1777485188,"model":"Qwen3.5-397B-A17B-GPTQ-Int4","choices":[{"index":0,"delta":{"role":null,"content":null,"reasoning_content":" me create","tool_calls":null},"logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+
+data: {"id":"9db0f782265b491eadb1fa72f165f05f","object":"chat.completion.chunk","created":1777485188,"model":"Qwen3.5-397B-A17B-GPTQ-Int4","choices":[{"index":0,"delta":{"role":null,"content":null,"reasoning_content":" a plan for","tool_calls":null},"logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+
+data: {"id":"9db0f782265b491eadb1fa72f165f05f","object":"chat.completion.chunk","created":1777485188,"model":"Qwen3.5-397B-A17B-GPTQ-Int4","choices":[{"index":0,"delta":{"role":null,"content":null,"reasoning_content":" implementing the","tool_calls":null},"logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+
+data: {"id":"9db0f782265b491eadb1fa72f165f05f","object":"chat.completion.chunk","created":1777485188,"model":"Qwen3.5-397B-A17B-GPTQ-Int4","choices":[{"index":0,"delta":{"role":null,"content":null,"reasoning_content":" coverage functionality","tool_calls":null},"logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+
+data: {"id":"9db0f782265b491eadb1fa72f165f05f","object":"chat.completion.chunk","created":1777485188,"model":"Qwen3.5-397B-A17B-GPTQ-Int4","choices":[{"index":0,"delta":{"role":null,"content":null,"reasoning_content":" based on","tool_calls":null},"logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+
+data: {"id":"9db0f782265b491eadb1fa72f165f05f","object":"chat.completion.chunk","created":1777485188,"model":"Qwen3.5-397B-A17B-GPTQ-Int4","choices":[{"index":0,"delta":{"role":null,"content":null,"reasoning_content":" the coverage_plan file","tool_calls":null},"logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+
+data: {"id":"9db0f782265b491eadb1fa72f165f05f","object":"chat.completion.chunk","created":1777485188,"model":"Qwen3.5-397B-A17B-GPTQ-Int4","choices":[{"index":0,"delta":{"role":null,"content":null,"reasoning_content":".","tool_calls":null},"logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+
+data: {"id":"9db0f782265b491eadb1fa72f165f05f","object":"chat.completion.chunk","created":1777485188,"model":"Qwen3.5-397B-A17B-GPTQ-Int4","choices":[{"index":0,"delta":{"role":null,"content":"\n\n","reasoning_content":null,"tool_calls":null},"logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+
+data: {"id":"9db0f782265b491eadb1fa72f165f05f","object":"chat.completion.chunk","created":1777485188,"model":"Qwen3.5-397B-A17B-GPTQ-Int4","choices":[{"index":0,"delta":{"role":null,"content":null,"reasoning_content":null,"tool_calls":[{"id":"call_c7ae44255db5404985cc4c66","index":0,"type":"function","function":{"name":"manage_todo_list","arguments":""}}]},"logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+
+data: {"id":"9db0f782265b491eadb1fa72f165f05f","object":"chat.completion.chunk","created":1777485189,"model":"Qwen3.5-397B-A17B-GPTQ-Int4","choices":[{"index":0,"delta":{"role":null,"content":null,"reasoning_content":null,"tool_calls":[{"id":null,"index":0,"type":"function","function":{"name":null,"arguments":"{"}}]},"logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+
+data: {"id":"9db0f782265b491eadb1fa72f165f05f","object":"chat.completion.chunk","created":1777485189,"model":"Qwen3.5-397B-A17B-GPTQ-Int4","choices":[{"index":0,"delta":{"role":null,"content":null,"reasoning_content":null,"tool_calls":[{"id":null,"index":0,"type":"function","function":{"name":null,"arguments":"\"todoList\": [{\"id\": 1, \"title\": \"Read and analyze coverage_plan file to understand requirements\", \"status\": \"in-progress\"}, {\"id\": 2, \"title\": \"Read existing coverage.py file to understand current structure\", \"status\": \"not-started\"}, {\"id\": 3, \"title\": \"Implement coverage functionality based on the plan\", \"status\": \"not-started\"}, {\"id\": 4, \"title\": \"Verify implementation matches the plan requirements\", \"status\": \"not-started\"}]"}}]},"logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+
+data: {"id":"9db0f782265b491eadb1fa72f165f05f","object":"chat.completion.chunk","created":1777485189,"model":"Qwen3.5-397B-A17B-GPTQ-Int4","choices":[{"index":0,"delta":{"role":null,"content":null,"reasoning_content":null,"tool_calls":[{"id":null,"index":0,"type":"function","function":{"name":null,"arguments":"}"}}]},"logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+
+data: {"id":"9db0f782265b491eadb1fa72f165f05f","object":"chat.completion.chunk","created":1777485189,"model":"Qwen3.5-397B-A17B-GPTQ-Int4","choices":[{"index":0,"delta":{"role":null,"content":null,"reasoning_content":null,"tool_calls":null},"logprobs":null,"finish_reason":"tool_calls","matched_stop":248046}],"usage":null}
+
+data: [DONE]
+

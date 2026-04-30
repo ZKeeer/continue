@@ -258,16 +258,3 @@ export function sanitizeForLlmDebug(value: unknown): unknown {
 export function stringifyForLlmDebug(value: unknown): string {
   return JSON.stringify(sanitizeForLlmDebug(value), null, 2);
 }
-
-export function isLlmDebugLoggingEnabled(): boolean {
-  const value = process.env.CONTINUE_LLM_DEBUG_LOG?.toLowerCase();
-  return value !== "0" && value !== "false" && value !== "off";
-}
-
-export function logLlmDebug(label: string, data: unknown): void {
-  if (!isLlmDebugLoggingEnabled()) {
-    return;
-  }
-
-  console.log(`[LLM_DEBUG] ${label}\n${stringifyForLlmDebug(data)}`);
-}

@@ -168,10 +168,6 @@ export function LumpToolbar() {
     runningTerminalCalls,
   ]);
 
-  if (isApplying) {
-    return <IsApplyingToolbar />;
-  }
-
   if (isInEdit) {
     if (editApplyState.status === "done") {
       return <EditOutcomeToolbar />;
@@ -182,6 +178,35 @@ export function LumpToolbar() {
 
   if (ttsActive) {
     return <TtsActiveToolbar />;
+  }
+
+  if (pendingApplyStates.length > 0) {
+    let secondaryToolbar: JSX.Element | null = null;
+
+    if (isApplying) {
+      secondaryToolbar = <IsApplyingToolbar />;
+    } else if (hasRunningTerminalCommand) {
+      const count = runningTerminalCalls.length;
+      const stopText = `Stop Terminal${count > 1 ? ` (${count})` : ""}`;
+      secondaryToolbar = (
+        <StreamingToolbar onStop={handleStopAction} displayText={stopText} />
+      );
+    } else if (isStreaming) {
+      secondaryToolbar = (
+        <StreamingToolbar onStop={() => dispatch(cancelStream())} />
+      );
+    }
+
+    return (
+      <div className="flex flex-col gap-2">
+        <PendingApplyStatesToolbar pendingApplyStates={pendingApplyStates} />
+        {secondaryToolbar}
+      </div>
+    );
+  }
+
+  if (isApplying) {
+    return <IsApplyingToolbar />;
   }
 
   // Only show terminal streaming for actual terminal commands
@@ -200,12 +225,6 @@ export function LumpToolbar() {
 
   if (pendingToolCalls.length > 0) {
     return <PendingToolCallToolbar />;
-  }
-
-  if (pendingApplyStates.length > 0) {
-    return (
-      <PendingApplyStatesToolbar pendingApplyStates={pendingApplyStates} />
-    );
   }
 
   return <BlockSettingsTopToolbar />;

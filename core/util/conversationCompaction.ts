@@ -12,6 +12,7 @@ export interface CompactionParams {
 // Maximum characters for a single tool result message content in compaction input.
 // Large file reads / terminal outputs are truncated to save tokens for the summary model.
 const MAX_TOOL_CONTENT_CHARS_FOR_COMPACTION = 2000;
+const RECENT_TOOL_RESULTS_TO_KEEP_UNTRUNCATED_FOR_COMPACTION = 4;
 
 /**
  * Truncate tool result content for compaction to avoid wasting summary model tokens
@@ -71,11 +72,27 @@ export async function compactConversation({
   }
 
   const messages: ChatHistoryItem["message"][] = [];
+  const toolResultIndexesToKeep = new Set<number>();
+  for (
+    let i = filteredHistory.length - 1;
+    i >= 0 &&
+    toolResultIndexesToKeep.size <
+      RECENT_TOOL_RESULTS_TO_KEEP_UNTRUNCATED_FOR_COMPACTION;
+    i--
+  ) {
+    const item = filteredHistory[i];
+    if (
+      item.message.role === "tool" &&
+      typeof item.message.content === "string"
+    ) {
+      toolResultIndexesToKeep.add(i);
+    }
+  }
 
   // Build messages for compaction, with optimizations:
   // 1. Skip thinking messages (internal model reasoning, no value for summary)
-  // 2. Truncate tool result content (large file reads waste summary tokens)
-  filteredHistory.forEach((item) => {
+  // 2. Truncate older tool result content while keeping recent tool results intact
+  filteredHistory.forEach((item, index) => {
     // Skip thinking messages - they are internal model reasoning
     if (item.message.role === "thinking") {
       return;
@@ -88,7 +105,9 @@ export async function compactConversation({
     ) {
       messages.push({
         ...item.message,
-        content: truncateForCompaction(item.message.content),
+        content: toolResultIndexesToKeep.has(index)
+          ? item.message.content
+          : truncateForCompaction(item.message.content),
       });
     } else {
       messages.push(item.message);
@@ -133,7 +152,7 @@ export async function compactConversation({
   const response = await currentModel.chat(
     [...messages, compactionPrompt],
     new AbortController().signal,
-    {},
+    { maxTokens: 2048 },
   );
 
   // Update the target message with the conversation summary

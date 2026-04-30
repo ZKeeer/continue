@@ -76,6 +76,49 @@ export const defaultApplyPrompt: PromptTemplateFunction = (
   _history,
   otherData,
 ) => {
+  const hasPrefixSuffix =
+    otherData.prefix?.trim().length > 0 ||
+    otherData.suffix?.trim().length > 0;
+
+  if (hasPrefixSuffix) {
+    const paragraphs = [
+      "The user has requested that a suggested edit be applied to a section of code in a file.",
+    ];
+
+    if (otherData.prefix?.trim().length > 0) {
+      paragraphs.push(dedent`
+        This is the prefix of the file:
+        \`\`\`${otherData.language}
+        ${otherData.prefix}
+        \`\`\``);
+    }
+
+    if (otherData.suffix?.trim().length > 0) {
+      paragraphs.push(dedent`
+        This is the suffix of the file:
+        \`\`\`${otherData.language}
+        ${otherData.suffix}
+        \`\`\``);
+    }
+
+    paragraphs.push(dedent`
+      This is the code to modify:
+      \`\`\`${otherData.language}
+      ${otherData.codeToEdit}
+      \`\`\`
+
+      SUGGESTED EDIT:
+      \`\`\`${otherData.language}
+      ${otherData.new_code}
+      \`\`\`
+
+      Apply the SUGGESTED EDIT to the code. Only output the modified code within the range, not the prefix or suffix. Do NOT output any natural language.
+
+      Here is the rewritten code:`);
+
+    return paragraphs.join("\n\n");
+  }
+
   return [
     {
       role: "user",
@@ -90,14 +133,14 @@ export const defaultApplyPrompt: PromptTemplateFunction = (
         ${otherData.new_code}
         \`\`\`
 
-        Apply the SUGGESTED EDIT to the ORIGINAL CODE. Output the complete modified file.
+        Apply the SUGGESTED EDIT to the ORIGINAL CODE. Output the complete modified code.
         - Output ONLY code. Do NOT explain, summarize, or describe changes.
         - Leave existing comments in place unless changes require modifying them.
         - Preserve all unchanged code exactly as-is.`,
     },
     {
       role: "assistant",
-      content: `\`\`\`\n`,
+      content: "```\n",
     },
   ];
 };

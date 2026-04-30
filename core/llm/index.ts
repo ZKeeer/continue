@@ -60,7 +60,6 @@ import {
   countTokens,
   pruneRawPromptFromTop,
 } from "./countTokens.js";
-import { logLlmDebug } from "./debugLogging.js";
 import { prepareOpenAICompatibleMessagesForReasoning } from "./openaiHistoryPreprocessor.js";
 import {
   fromChatCompletionChunk,
@@ -659,13 +658,6 @@ export abstract class BaseLLM implements ILLM {
     // Custom Node.js fetch
     const customFetch = async (input: URL | RequestInfo, init: any) => {
       try {
-        logLlmDebug("BaseLLM fetch request params", {
-          provider: this.providerName,
-          model: this.model,
-          url: String(input),
-          init,
-          requestOptions: this.requestOptions,
-        });
         const resp = await fetchwithRequestOptions(
           new URL(input as any),
           { ...init },
@@ -1189,30 +1181,31 @@ export abstract class BaseLLM implements ILLM {
     return body;
   }
 
-  protected shouldPrepareOpenAICompatibleHistoryForReasoning(
+  protected prepareOpenAICompatibleMessagesForReasoning(
+    messages: ChatMessage[],
     completionOptions: CompletionOptions,
-  ): boolean {
+  ): ChatMessage[] {
     const modelIdentifier = [completionOptions.model, this.model, this.title]
       .filter(Boolean)
       .join(" ")
       .toLowerCase();
 
-    return modelIdentifier.includes("qwen") || modelIdentifier.includes("qwq");
-  }
+    const isReasoningModel =
+      modelIdentifier.includes("qwen") ||
+      modelIdentifier.includes("qwq") ||
+      modelIdentifier.includes("deepseek") ||
+      modelIdentifier.includes("o1") ||
+      modelIdentifier.includes("o3") ||
+      modelIdentifier.includes("o4") ||
+      modelIdentifier.includes("gpt-5");
 
-  protected prepareOpenAICompatibleMessagesForReasoning(
-    messages: ChatMessage[],
-    completionOptions: CompletionOptions,
-  ): ChatMessage[] {
-    if (
-      !this.shouldPrepareOpenAICompatibleHistoryForReasoning(completionOptions)
-    ) {
+    if (!isReasoningModel) {
       return messages;
     }
 
     return prepareOpenAICompatibleMessagesForReasoning(messages, {
-      keepRecentStructuredToolRounds: 2,
-      stripReasoning: true,
+      keepRecentStructuredToolRounds: 0,
+      stripReasoning: false,
     });
   }
 
@@ -1285,51 +1278,15 @@ export abstract class BaseLLM implements ILLM {
       { ...body, stream: true },
       signal,
     );
-    let chunkIndex = 0;
     for await (const chunk of stream) {
-      chunkIndex++;
       const choice = (chunk as any).choices?.[0];
       const toolCalls = Array.isArray(choice?.delta?.tool_calls)
         ? choice.delta.tool_calls
         : [];
-      const finishReason = choice?.finish_reason;
-      if (toolCalls.length > 0 || finishReason || (chunk as any).usage) {
-        console.log(
-          `[OpenAIAdapterStream] ${JSON.stringify({
-            chunkIndex,
-            chunkId: (chunk as any).id,
-            finishReason,
-            hasUsage: !!(chunk as any).usage,
-            toolCalls: toolCalls.map((toolCall: any) => ({
-              id: toolCall.id,
-              index: toolCall.index,
-              type: toolCall.type,
-              name: toolCall.function?.name,
-              argsLength:
-                typeof toolCall.function?.arguments === "string"
-                  ? toolCall.function.arguments.length
-                  : undefined,
-              argsPreview:
-                typeof toolCall.function?.arguments === "string"
-                  ? toolCall.function.arguments.slice(0, 160)
-                  : undefined,
-            })),
-          })}`,
-        );
-      }
       if (!this.lastRequestId && typeof (chunk as any).id === "string") {
         this.lastRequestId = (chunk as any).id;
       }
       const chatChunk = fromChatCompletionChunk(chunk as any);
-      if ((toolCalls.length > 0 || finishReason) && !chatChunk) {
-        console.log(
-          `[OpenAIAdapterStream] chunk converted to undefined ${JSON.stringify({
-            chunkIndex,
-            chunkId: (chunk as any).id,
-            finishReason,
-          })}`,
-        );
-      }
       if (chatChunk) {
         yield chatChunk;
       }
@@ -1442,23 +1399,6 @@ export abstract class BaseLLM implements ILLM {
       ? this.templateMessages(messagesCopy)
       : this._formatChatMessages(messagesCopy);
 
-    logLlmDebug("BaseLLM streamChat effective request params", {
-      provider: this.providerName,
-      underlyingProvider: this.underlyingProviderName,
-      title: this.title,
-      model: completionOptions.model,
-      messageOptions,
-      supportsReasoning: {
-        includeReasoningField: this.supportsReasoningField,
-        includeReasoningDetailsField: this.supportsReasoningDetailsField,
-        includeReasoningContentField: this.supportsReasoningContentField,
-      },
-      rawOptions: options,
-      optionsWithOverrides,
-      completionOptions,
-      messages,
-    });
-
     if (logEnabled) {
       interaction?.logItem({
         kind: "startChat",
@@ -1503,13 +1443,6 @@ export abstract class BaseLLM implements ILLM {
             includeReasoningContentField: this.supportsReasoningContentField,
           });
           body = this.modifyChatBody(body);
-          logLlmDebug("BaseLLM OpenAI-adapter chat body params", {
-            provider: this.providerName,
-            underlyingProvider: this.underlyingProviderName,
-            model: completionOptions.model,
-            completionOptions,
-            body,
-          });
           requestBodySummary = summarizeChatCompletionBodyForDebug(body);
 
           if (logEnabled) {

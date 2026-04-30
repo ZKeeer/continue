@@ -14,6 +14,7 @@ import type { VerticalDiffCodeLens } from "./manager";
 import { getFirstChangedLine } from "./util";
 
 export interface VerticalDiffHandlerOptions {
+  baseFileContent?: string;
   input?: string;
   instant?: boolean;
   onStatusUpdate: (
@@ -36,6 +37,7 @@ export class VerticalDiffHandler implements vscode.Disposable {
   private addedLineDecorations: AddedLineDecorationManager;
   private _diffLinesQueue: DiffLine[] = [];
   private _queueLock = false;
+  public baseFileContent?: string;
 
   constructor(
     private startLine: number,
@@ -54,6 +56,7 @@ export class VerticalDiffHandler implements vscode.Disposable {
   ) {
     this.currentLineIndex = startLine;
     this.streamId = options.streamId;
+    this.baseFileContent = options.baseFileContent;
 
     this.removedLineDecorations = new RemovedLineDecorationManager(this.editor);
     this.addedLineDecorations = new AddedLineDecorationManager(this.editor);

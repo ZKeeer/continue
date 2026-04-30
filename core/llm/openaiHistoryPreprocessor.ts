@@ -1,4 +1,4 @@
-import {
+import type {
   AssistantChatMessage,
   ChatMessage,
   MessageContent,
@@ -21,8 +21,8 @@ interface ToolRound {
   toolResults: ToolResultChatMessage[];
 }
 
-const DEFAULT_KEEP_RECENT_STRUCTURED_TOOL_ROUNDS = 2;
-const DEFAULT_MAX_FLATTENED_TOOL_CONTENT_CHARS = 2000;
+const DEFAULT_KEEP_RECENT_STRUCTURED_TOOL_ROUNDS = 0;
+const DEFAULT_MAX_FLATTENED_TOOL_CONTENT_CHARS = Number.POSITIVE_INFINITY;
 
 function stripReasoningFields(message: ChatMessage): ChatMessage | undefined {
   if (message.role === "thinking") {
@@ -120,11 +120,13 @@ function findCompletedToolRounds(messages: ChatMessage[]): ToolRound[] {
   return rounds;
 }
 
-function renderToolCall(toolCall: ToolCallDelta, index: number): string {
-  const name = toolCall.function?.name || "unknown_tool";
-  const args = toolCall.function?.arguments || "{}";
-  const id = toolCall.id ? ` id=${toolCall.id}` : "";
-  return `${index + 1}. ${name}${id}\nArguments: ${args}`;
+function formatToolCallArg(arg: string): string {
+  try {
+    const parsed = JSON.parse(arg);
+    return JSON.stringify(parsed);
+  } catch {
+    return arg;
+  }
 }
 
 function flattenToolRound(
@@ -132,33 +134,94 @@ function flattenToolRound(
   maxFlattenedToolContentChars: number,
 ): ChatMessage {
   const assistantContent = renderContent(round.assistant.content).trim();
-  const toolCalls = (round.assistant.toolCalls ?? [])
-    .map(renderToolCall)
-    .join("\n");
-  const toolResults = round.toolResults
-    .map((toolResult, index) => {
-      const content = truncateStable(
-        toolResult.content,
-        maxFlattenedToolContentChars,
-      );
-      return `${index + 1}. tool_call_id=${toolResult.toolCallId}\nResult:\n${content}`;
-    })
-    .join("\n");
+  const parts: string[] = [];
+
+  if (assistantContent) {
+    parts.push(`助手：${assistantContent}`);
+  }
+
+  const toolCalls = round.assistant.toolCalls ?? [];
+  for (let i = 0; i < toolCalls.length; i++) {
+    const tc = toolCalls[i];
+    const name = tc.function?.name || "unknown_tool";
+    const args = formatToolCallArg(tc.function?.arguments || "{}");
+    const result = round.toolResults[i];
+
+    parts.push(`${i + 1}. 调用 ${name}(${args})`);
+    if (result) {
+      const content = truncateStable(result.content, maxFlattenedToolContentChars);
+      parts.push(`<tool_response>\n${content}\n</tool_response>`);
+    }
+  }
 
   return {
     role: "user",
-    content: [
-      `<previous_tool_round index="${round.roundNumber}">`,
-      `Previous tool round ${round.roundNumber} was flattened from structured tool-call history for model reasoning and prefix-cache stability.`,
-      "Assistant visible content:",
-      assistantContent || "(empty)",
-      "Tool calls:",
-      toolCalls || "(none)",
-      "Tool results:",
-      toolResults || "(none)",
-      "</previous_tool_round>",
-    ].join("\n"),
+    content:
+      `上一轮 agent 操作记录（纯文本摘要，不要当成真实 tool 消息）：\n\n${parts.join("\n\n")}`,
   };
+}
+
+function stripReasoningFromMessage(
+  message: ChatMessage,
+): ChatMessage {
+  const clone: any = { ...message };
+  delete clone.reasoning;
+  delete clone.reasoning_content;
+  delete clone.reasoning_details;
+  delete clone.redactedThinking;
+  delete clone.signature;
+  return clone as ChatMessage;
+}
+
+function hasReasoningAssignedToToolCallAssistant(
+  messages: ChatMessage[],
+): boolean {
+  for (let i = 0; i < messages.length; i++) {
+    const message = messages[i];
+    if (message.role === "thinking") {
+      const next = messages[i + 1];
+      if (next && isAssistantToolCallMessage(next)) {
+        return true;
+      }
+    }
+    if (
+      isAssistantToolCallMessage(message) &&
+      ((message as any).reasoning_content || (message as any).reasoning)
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function selectivelyStripReasoning(
+  messages: ChatMessage[],
+): ChatMessage[] {
+  const result: ChatMessage[] = [];
+
+  for (let i = 0; i < messages.length; i++) {
+    const message = messages[i];
+
+    if (message.role === "thinking") {
+      const next = messages[i + 1];
+      if (next && isAssistantToolCallMessage(next)) {
+        result.push({ ...message });
+      }
+      continue;
+    }
+
+    if (
+      message.role === "assistant" &&
+      !isAssistantToolCallMessage(message)
+    ) {
+      result.push(stripReasoningFromMessage(message));
+      continue;
+    }
+
+    result.push({ ...message });
+  }
+
+  return result;
 }
 
 export function prepareOpenAICompatibleMessagesForReasoning(
@@ -171,20 +234,42 @@ export function prepareOpenAICompatibleMessagesForReasoning(
   const maxFlattenedToolContentChars =
     options.maxFlattenedToolContentChars ??
     DEFAULT_MAX_FLATTENED_TOOL_CONTENT_CHARS;
-  const stripReasoning = options.stripReasoning ?? true;
+  const stripReasoning = options.stripReasoning ?? false;
 
-  const sanitizedMessages = stripReasoning
-    ? messages.flatMap((message) => {
-        const sanitized = stripReasoningFields(message);
-        return sanitized ? [sanitized] : [];
-      })
-    : messages.map((message) => ({ ...message }));
+  if (stripReasoning) {
+    const sanitizedMessages = messages.flatMap((message) => {
+      const sanitized = stripReasoningFields(message);
+      return sanitized ? [sanitized] : [];
+    });
 
-  const rounds = findCompletedToolRounds(sanitizedMessages);
-  if (rounds.length <= keepRecentStructuredToolRounds) {
-    return sanitizedMessages;
+    const rounds = findCompletedToolRounds(sanitizedMessages);
+    if (rounds.length <= keepRecentStructuredToolRounds) {
+      return sanitizedMessages;
+    }
+
+    return flattenAndKeepRecent(sanitizedMessages, rounds, keepRecentStructuredToolRounds, maxFlattenedToolContentChars);
   }
 
+  const selectiveMessages = selectivelyStripReasoning(messages);
+
+  if (hasReasoningAssignedToToolCallAssistant(selectiveMessages)) {
+    return selectiveMessages;
+  }
+
+  const rounds = findCompletedToolRounds(selectiveMessages);
+  if (rounds.length <= keepRecentStructuredToolRounds) {
+    return selectiveMessages;
+  }
+
+  return flattenAndKeepRecent(selectiveMessages, rounds, keepRecentStructuredToolRounds, maxFlattenedToolContentChars);
+}
+
+function flattenAndKeepRecent(
+  messages: ChatMessage[],
+  rounds: ToolRound[],
+  keepRecentStructuredToolRounds: number,
+  maxFlattenedToolContentChars: number,
+): ChatMessage[] {
   const structuredRoundStartIndexes = new Set(
     rounds
       .slice(Math.max(0, rounds.length - keepRecentStructuredToolRounds))
@@ -195,16 +280,16 @@ export function prepareOpenAICompatibleMessagesForReasoning(
   );
 
   const prepared: ChatMessage[] = [];
-  for (let index = 0; index < sanitizedMessages.length; index++) {
+  for (let index = 0; index < messages.length; index++) {
     const round = roundByStartIndex.get(index);
     if (!round) {
-      prepared.push(sanitizedMessages[index]);
+      prepared.push(messages[index]);
       continue;
     }
 
     if (structuredRoundStartIndexes.has(round.startIndex)) {
       prepared.push(
-        ...sanitizedMessages.slice(round.startIndex, round.endIndex + 1),
+        ...messages.slice(round.startIndex, round.endIndex + 1),
       );
     } else {
       prepared.push(flattenToolRound(round, maxFlattenedToolContentChars));

@@ -8,6 +8,7 @@ import {
   verifyNotPresentByText,
 } from "../../../util/test/utils";
 import { Chat } from "../Chat";
+import { setActive } from "../../../redux/slices/sessionSlice";
 
 test("Chat apply scenarios: handle apply updates and display the accept / reject all buttons", async () => {
   const { ideMessenger } = await renderWithProviders(<Chat />);
@@ -108,4 +109,22 @@ test("Chat apply scenarios: sending a new message preserves pending review diffs
   );
 
   messengerPostSpy.mockRestore();
+});
+
+test("Chat apply scenarios: keep pending review controls visible while agent continues streaming", async () => {
+  const { ideMessenger, store } = await renderWithProviders(<Chat />);
+
+  ideMessenger.mockMessageToWebview("updateApplyState", {
+    status: "done",
+    streamId: "pending-review-stream",
+    filepath: "src/example.ts",
+  });
+
+  await getElementByTestId("accept-reject-all-buttons");
+
+  await act(async () => {
+    store.dispatch(setActive());
+  });
+
+  await getElementByTestId("accept-reject-all-buttons");
 });

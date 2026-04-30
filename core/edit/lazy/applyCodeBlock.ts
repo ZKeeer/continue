@@ -21,6 +21,19 @@ export async function applyCodeBlock(
   isInstantApply: boolean;
   diffLinesGenerator: AsyncGenerator<DiffLine>;
 }> {
+  // If the code block is a diff
+  if (isUnifiedDiffFormat(newLazyFile)) {
+    try {
+      const diffLines = applyUnifiedDiff(oldFile, newLazyFile);
+      return {
+        isInstantApply: true,
+        diffLinesGenerator: generateLines(diffLines!),
+      };
+    } catch (e) {
+      console.error("Failed to apply unified diff", e);
+    }
+  }
+
   if (canUseInstantApply(filename)) {
     const diffLines = await deterministicApplyLazyEdit({
       oldFile,
@@ -34,19 +47,6 @@ export async function applyCodeBlock(
         isInstantApply: true,
         diffLinesGenerator: generateLines(diffLines!),
       };
-    }
-  }
-
-  // If the code block is a diff
-  if (isUnifiedDiffFormat(newLazyFile)) {
-    try {
-      const diffLines = applyUnifiedDiff(oldFile, newLazyFile);
-      return {
-        isInstantApply: true,
-        diffLinesGenerator: generateLines(diffLines!),
-      };
-    } catch (e) {
-      console.error("Failed to apply unified diff", e);
     }
   }
 

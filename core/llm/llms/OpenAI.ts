@@ -17,7 +17,6 @@ import {
   Tool,
 } from "../../index.js";
 import { renderChatMessage } from "../../util/messageContent.js";
-import { logLlmDebug } from "../debugLogging.js";
 import { BaseLLM } from "../index.js";
 import {
   fromChatCompletionChunk,
@@ -276,11 +275,7 @@ class OpenAI extends BaseLLM {
     options: CompletionOptions,
     messages: ChatMessage[],
   ): ChatCompletionCreateParams {
-    const preparedMessages = this.prepareOpenAICompatibleMessagesForReasoning(
-      messages,
-      options,
-    );
-    const finalOptions = toChatBody(preparedMessages, options, {
+    const finalOptions = toChatBody(messages, options, {
       includeReasoningField: this.supportsReasoningField,
       includeReasoningDetailsField: this.supportsReasoningDetailsField,
       includeReasoningContentField: this.supportsReasoningContentField,
@@ -543,14 +538,6 @@ class OpenAI extends BaseLLM {
     }
 
     const body = this._convertArgs(options, messages);
-    logLlmDebug("Core OpenAI chat/completions request body params", {
-      provider: this.providerName,
-      model: options.model,
-      endpoint: String(this._getEndpoint("chat/completions")),
-      completionOptions: options,
-      body,
-      extraBodyProperties: this.extraBodyProperties(),
-    });
 
     const response = await this.fetch(this._getEndpoint("chat/completions"), {
       method: "POST",
@@ -591,15 +578,6 @@ class OpenAI extends BaseLLM {
     }
 
     const body: any = this._convertArgsResponses(options, messages);
-    logLlmDebug("Core OpenAI responses request body params", {
-      provider: this.providerName,
-      model: options.model,
-      endpoint: String(this._getEndpoint("responses")),
-      completionOptions: options,
-      body,
-      extraBodyProperties: this.extraBodyProperties(),
-      mode: "stream",
-    });
 
     // o1 does not support streaming
     if (body.model === "o1") {
@@ -652,15 +630,6 @@ class OpenAI extends BaseLLM {
     }
 
     const body: any = this._convertArgsResponses(options, messages);
-    logLlmDebug("Core OpenAI responses request body params", {
-      provider: this.providerName,
-      model: options.model,
-      endpoint: String(this._getEndpoint("responses")),
-      completionOptions: options,
-      body,
-      extraBodyProperties: this.extraBodyProperties(),
-      mode: "non-stream",
-    });
 
     const response = await this.fetch(this._getEndpoint("responses"), {
       method: "POST",

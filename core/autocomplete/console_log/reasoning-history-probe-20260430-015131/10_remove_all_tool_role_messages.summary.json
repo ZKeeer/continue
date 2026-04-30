@@ -1,0 +1,17 @@
+{
+  "chunks": 37,
+  "reasoning_content_chunks": 25,
+  "reasoning_content_chars": 149,
+  "content_chunks": 2,
+  "content_chars": 3,
+  "tool_call_chunks": 8,
+  "first_reasoning_index": 1,
+  "first_tool_call_index": 27,
+  "finish_reasons": [
+    "tool_calls"
+  ],
+  "matched_stops": [
+    248046
+  ],
+  "usage": null
+}

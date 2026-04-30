@@ -45,16 +45,22 @@ function constructEditPrompt(
 }
 
 function constructApplyPrompt(
-  originalCode: string,
-  newCode: string,
+  prefix: string,
+  highlighted: string,
+  suffix: string,
   llm: ILLM,
-) {
+  newCode: string,
+  language: string | undefined,
+): string | ChatMessage[] {
   const template = llm.promptTemplates?.apply ?? defaultApplyPrompt;
   const rendered = llm.renderPromptTemplate(template, [], {
-    original_code: originalCode,
+    original_code: highlighted,
     new_code: newCode,
+    prefix,
+    suffix,
+    codeToEdit: highlighted,
+    language: language ?? "",
   });
-
   return rendered;
 }
 
@@ -109,7 +115,7 @@ export async function* streamDiffLines(
   let prompt =
     overridePrompt ??
     (type === "apply"
-      ? constructApplyPrompt(oldLines.join("\n"), options.newCode, llm)
+      ? constructApplyPrompt(prefix, highlighted, suffix, llm, options.newCode, language)
       : constructEditPrompt(prefix, highlighted, suffix, llm, input, language));
 
   // Rules can be included with edit prompt

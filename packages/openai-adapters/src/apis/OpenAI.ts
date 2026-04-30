@@ -16,7 +16,7 @@ import type {
   ResponseStreamEvent,
 } from "openai/resources/responses/responses.js";
 import { z } from "zod";
-import { logLlmDebug, summarizeLlmRequestForDebug } from "../debugLogging.js";
+import { summarizeLlmRequestForDebug } from "../debugLogging.js";
 import { OpenAIConfigSchema } from "../types.js";
 import { customFetch } from "../util.js";
 import {
@@ -187,23 +187,12 @@ export class OpenAIApi implements BaseLlmApi {
     }
     const originalBody = cloneChatBodyForDebug(body);
     const finalBody = this.modifyChatBody(body);
-    logLlmDebug("OpenAI chatCompletionNonStream request params", {
-      apiBase: this.apiBase,
-      requestOptions: this.config.requestOptions,
-      originalRequest: summarizeLlmRequestForDebug(originalBody),
-      finalRequest: summarizeLlmRequestForDebug(finalBody),
-    });
     try {
       const response = await this.openai.chat.completions.create(finalBody, {
         signal,
       });
       return response;
     } catch (error) {
-      logLlmDebug("OpenAI chatCompletionNonStream error params", {
-        apiBase: this.apiBase,
-        request: summarizeLlmRequestForDebug(finalBody),
-        error,
-      });
       this.logChatCompletionFailure(
         "chatCompletionNonStream",
         error,
@@ -226,12 +215,6 @@ export class OpenAIApi implements BaseLlmApi {
     }
     const originalBody = cloneChatBodyForDebug(body);
     const finalBody = this.modifyChatBody(body);
-    logLlmDebug("OpenAI chatCompletionStream request params", {
-      apiBase: this.apiBase,
-      requestOptions: this.config.requestOptions,
-      originalRequest: summarizeLlmRequestForDebug(originalBody),
-      finalRequest: summarizeLlmRequestForDebug(finalBody),
-    });
     try {
       const response = await this.openai.chat.completions.create(finalBody, {
         signal,
@@ -251,11 +234,6 @@ export class OpenAIApi implements BaseLlmApi {
         yield lastChunkWithUsage;
       }
     } catch (error) {
-      logLlmDebug("OpenAI chatCompletionStream error params", {
-        apiBase: this.apiBase,
-        request: summarizeLlmRequestForDebug(finalBody),
-        error,
-      });
       this.logChatCompletionFailure(
         "chatCompletionStream",
         error,
@@ -351,12 +329,6 @@ export class OpenAIApi implements BaseLlmApi {
       ...(body as ChatCompletionCreateParams),
       stream: false,
     });
-    logLlmDebug("OpenAI responsesNonStream request params", {
-      apiBase: this.apiBase,
-      requestOptions: this.config.requestOptions,
-      chatCompletionRequest: summarizeLlmRequestForDebug(body),
-      responsesRequest: summarizeLlmRequestForDebug(params),
-    });
     const response = (await this.openai.responses.create(params, {
       signal,
     })) as Response;
@@ -370,13 +342,6 @@ export class OpenAIApi implements BaseLlmApi {
     const params = toResponsesParams({
       ...(body as ChatCompletionCreateParams),
       stream: true,
-    });
-
-    logLlmDebug("OpenAI responsesStream request params", {
-      apiBase: this.apiBase,
-      requestOptions: this.config.requestOptions,
-      chatCompletionRequest: summarizeLlmRequestForDebug(body),
-      responsesRequest: summarizeLlmRequestForDebug(params),
     });
 
     const state = createResponsesStreamState({

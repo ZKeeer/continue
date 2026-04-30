@@ -159,6 +159,26 @@ describe("deterministicApplyLazyEdit(", () => {
     await expectDiff("migration-page.tsx");
   });
 
+  test("rejects risky full-file rewrites", async () => {
+    const oldFile = [
+      "export function a() { return 1; }",
+      "export function b() { return 2; }",
+      "export function c() { return 3; }",
+      "export function d() { return 4; }",
+      "export function e() { return 5; }",
+    ].join("\n");
+    const newFile = "export function replacement() { return 42; }";
+
+    await expect(
+      deterministicApplyLazyEdit({
+        oldFile,
+        newLazyFile: newFile,
+        filename: "example.ts",
+        onlyFullFileRewrite: true,
+      }),
+    ).resolves.toBeUndefined();
+  });
+
   test.skip("should handle case where surrounding class is neglected, with lazy block surrounding", async () => {
     await expectDiff("calculator-class-neglected.js");
   });

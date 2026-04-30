@@ -1,5 +1,7 @@
 import { ApplyState } from "core";
 import { getUriPathBasename } from "core/util/uri";
+import { useContext } from "react";
+import { IdeMessengerContext } from "../../../../context/IdeMessenger";
 import AcceptRejectDiffButtons from "../../../AcceptRejectDiffButtons";
 import FileIcon from "../../../FileIcon";
 
@@ -10,6 +12,8 @@ interface PendingApplyStatesToolbarProps {
 export function PendingApplyStatesToolbar({
   pendingApplyStates,
 }: PendingApplyStatesToolbarProps) {
+  const ideMessenger = useContext(IdeMessengerContext);
+
   // Group apply states by filepath
   const applyStatesByFilepath = pendingApplyStates.reduce(
     (acc, state) => {
@@ -28,10 +32,17 @@ export function PendingApplyStatesToolbar({
       {Object.entries(applyStatesByFilepath).map(([filepath, states]) => (
         <div key={filepath} className="flex justify-between gap-3">
           {filepath && (
-            <span className="bg-badge flex min-w-0 max-w-[75%] items-center gap-1 truncate rounded pr-1 text-xs">
+            <button
+              aria-label={`Open ${getUriPathBasename(filepath)}`}
+              className="bg-badge text-description-muted flex min-w-0 max-w-[75%] cursor-pointer items-center gap-1 truncate rounded border-none p-0 pr-1 text-xs hover:brightness-125 focus:outline-none focus:ring-1 focus:ring-current"
+              onClick={() => {
+                ideMessenger.post("showFile", { filepath });
+              }}
+              type="button"
+            >
               <FileIcon filename={filepath} height="18px" width="18px" />
               <span className="truncate">{getUriPathBasename(filepath)}</span>
-            </span>
+            </button>
           )}
           <AcceptRejectDiffButtons
             applyStates={states}
